@@ -8,19 +8,19 @@ public class BuilderCameraController : MonoBehaviour
     [SerializeField] private float normalMoveSpeed = 20f;
     [SerializeField] private float sprintMoveSpeed = 40f;
 
-    [Header("Yaw (Q / E Hold to Rotate)")]
+    [Header("Yaw Rotation")]
     [SerializeField] private float yawSpeed = 100f; 
     [SerializeField] private float yawSnappiness = 15f;
 
-    [Header("Dynamic Pitch & Zoom (Scroll Wheel)")]
+    [Header("Pitch")]
     [SerializeField] private float scrollSensitivity = 15f;
     [SerializeField] private float zoomSnappiness = 10f;
     
-    [Tooltip("0 = Fully Zoomed In (Close & Flat) | 1 = Fully Zoomed Out (High & Overlooking)")]
+    [Tooltip("0: Fully Zoomed In / 1: Fully Zoomed Out")]
     [Range(0f, 1f)] 
     [SerializeField] private float initialZoomProgress = 0.5f;
 
-    [Header("Zoom Bounds Calibration")]
+    [Header("Zoom Bounds")]
     [SerializeField] private float minPitchAngle = 25f;   
     [SerializeField] private float maxPitchAngle = 75f;   
     [SerializeField] private float minCameraDepth = 5f;   
@@ -32,11 +32,9 @@ public class BuilderCameraController : MonoBehaviour
     private float yawInput; 
     private bool isSprinting;
 
-    // Targeted states
     private float targetYaw;
     private float targetZoomProfile; 
 
-    // Current states during transitions
     private float currentYaw;
     private float currentZoomProfile;
 
@@ -45,7 +43,6 @@ public class BuilderCameraController : MonoBehaviour
         inputActions = new InputSystem.Controls();
         vCam = GetComponentInChildren<CinemachineCamera>();
 
-        // Scroll wheel event hook
         inputActions.Camera.Pitch.performed += ctx => OnScrollInput(ctx.ReadValue<float>());
     }
 
@@ -72,25 +69,21 @@ public class BuilderCameraController : MonoBehaviour
 
     private void Update()
     {
-        // 1. READ CONTINUOUS INPUTS
         moveInput = inputActions.Camera.Move.ReadValue<Vector2>();
         yawInput = inputActions.Camera.Yaw.ReadValue<float>();
         
-        // Read button state (returns true if held down)
         isSprinting = inputActions.Camera.Sprint.IsPressed(); 
 
-        // 2. PROCESS YAW INPUT
         if (Mathf.Abs(yawInput) > 0.01f)
         {
             targetYaw += Mathf.Sign(yawInput) * yawSpeed * Time.deltaTime;
         }
 
-        // 3. APPLY SMOOTH TRANSITIONS & POSITIONING
-        HandleFluidTransitions();
+        HandleTransitions();
         HandleRigMovement();
     }
 
-    private void HandleFluidTransitions()
+    private void HandleTransitions()
     {
         float yawDecay = 1f - Mathf.Exp(-yawSnappiness * Time.deltaTime);
         float zoomDecay = 1f - Mathf.Exp(-zoomSnappiness * Time.deltaTime);
@@ -126,7 +119,6 @@ public class BuilderCameraController : MonoBehaviour
 
         Vector3 movementDirection = (forward * moveInput.y) + (right * moveInput.x);
         
-        // Switch execution speed baseline dynamically based on key state
         float activeSpeed = isSprinting ? sprintMoveSpeed : normalMoveSpeed;
 
         transform.position += movementDirection.normalized * activeSpeed * Time.deltaTime;
