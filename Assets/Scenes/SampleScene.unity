@@ -406,7 +406,7 @@ MonoBehaviour:
   sceneCamera: {fileID: 330585545}
   placementLayermask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 8
 --- !u!1 &141914883
 GameObject:
   m_ObjectHideFlags: 0
@@ -1093,7 +1093,7 @@ GameObject:
   - component: {fileID: 429430683}
   - component: {fileID: 429430682}
   - component: {fileID: 429430686}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: BuildingGrid
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1189,7 +1189,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 2, y: 1, z: 2}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1047693915}
@@ -1374,8 +1374,9 @@ MonoBehaviour:
   inputManager: {fileID: 68333708}
   grid: {fileID: 2073405669}
   objectDatabase: {fileID: 11400000, guid: 800c1ce30e8f14f4e8c5339519ee38fd, type: 2}
-  edgeDatabase: {fileID: 0}
+  edgeDatabase: {fileID: 11400000, guid: 84c7c0da4635bc34c9896f980fe3e421, type: 2}
   gridVisualization: {fileID: 429430681}
+  preview: {fileID: 967919790}
 --- !u!1 &619994496
 GameObject:
   m_ObjectHideFlags: 0
@@ -1407,6 +1408,7 @@ Transform:
   m_Children:
   - {fileID: 68333707}
   - {fileID: 529884852}
+  - {fileID: 967919791}
   - {fileID: 166735499}
   - {fileID: 1047693915}
   m_Father: {fileID: 0}
@@ -1492,7 +1494,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 662113395}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 529884853}
+        m_TargetAssemblyTypeName: PlacementSystem, Assembly-CSharp
+        m_MethodName: StartPlacement
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 2
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &662113395
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1793,6 +1807,51 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 875581589}
   m_CullTransparentMesh: 1
+--- !u!1 &967919789
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 967919791}
+  - component: {fileID: 967919790}
+  m_Layer: 0
+  m_Name: PreviewSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &967919790
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 967919789}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 920cd39514f11f04f8a88d14dd9677a1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PreviewSystem
+  previewYOffset: 0.06
+--- !u!4 &967919791
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 967919789}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 619994497}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &978384054
 GameObject:
   m_ObjectHideFlags: 0
@@ -2355,7 +2414,7 @@ GameObject:
   - component: {fileID: 1303383347}
   - component: {fileID: 1303383346}
   - component: {fileID: 1303383345}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Surface
   m_TagString: Untagged
   m_Icon: {fileID: 0}

@@ -1,15 +1,41 @@
+
 using UnityEngine;
 
 public class PreviewSystem : MonoBehaviour
 {
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
+    [SerializeField]
+    private float previewYOffset = 0.06f;
+
+    private GameObject previewObject;
+
+    public void StartShowingPlacementPreview(GameObject prefab)
     {
-        
+        previewObject = Instantiate(prefab);
     }
 
-    // Update is called once per frame
-    void Update()
+    public void StopShowingPreview()
+    {
+        if(previewObject!= null)
+            Destroy(previewObject );
+    }
+
+    public void UpdatePosition(Vector3 position)
+    {
+        if(previewObject != null)
+        {
+            MovePreview(position);
+        }
+
+    }
+    private void MovePreview(Vector3 position)
+    {
+        previewObject.transform.position = new Vector3(
+            position.x, 
+            position.y + previewYOffset, 
+            position.z);
+    }
+
+    internal void StartShowingRemovePreview()
     {
         
     }

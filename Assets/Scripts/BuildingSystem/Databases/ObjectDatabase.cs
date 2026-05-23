@@ -8,15 +8,6 @@ public class ObjectDatabase : ScriptableObject
 {
     public List<ObjectData> objectsData;
 
-    public void Awake()
-    {
-        int id = 0;
-        foreach (var obj in objectsData)
-        {
-            obj.ID = id++;
-        }
-    }
-
 }
 
 [Serializable]
@@ -31,4 +22,13 @@ public class ObjectData
 
     [field: SerializeField] public int ID;
 
+    [field: SerializeField] public ObjectBuildType buildType;
+
+}
+
+public enum ObjectBuildType
+{
+    Floor,
+    Furniture,
+    Ceiling
 }
