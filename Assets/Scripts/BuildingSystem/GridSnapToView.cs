@@ -9,8 +9,9 @@ public class GridSnapToView : MonoBehaviour
 
     void Update(){
         Vector3 pos = target.GetSelectedMapPosition();
-        if (pos == null)
+        if (pos == null || target.IsPointerOverUI())
             return;
+            
         Vector3Int position = Vector3Int.RoundToInt(pos);
 
         //snaps the position of the grid to each 15 by 15 unit

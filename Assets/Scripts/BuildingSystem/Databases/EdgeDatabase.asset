@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c65cc72c6efdd9429cf948f13c2ac0a, type: 3}
+  m_Name: EdgeDatabase
+  m_EditorClassIdentifier: Assembly-CSharp::EdgeDatabase
+  edgeData:
+  - name: Wall
+    positionsFilled: 01000000
+    prefab: {fileID: 2215295343544389489, guid: 22d0c3cb2c30a5a43a114f4af1429183, type: 3}
+    ID: 0
