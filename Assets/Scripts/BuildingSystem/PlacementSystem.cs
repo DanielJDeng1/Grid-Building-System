@@ -21,7 +21,7 @@ public class PlacementSystem : MonoBehaviour
 
     private GridData floorData, furnitureData, ceilingData;
 
-    private List<GameObject> placedGameObjects = new List<GameObject>();
+    [SerializeField] private ObjectPlacer objectPlacer;
 
     private Vector3Int lastDetectedPosition = Vector3Int.zero;
 
@@ -77,14 +77,12 @@ public class PlacementSystem : MonoBehaviour
         bool placementValidity = CheckPlacementValidity(gridPosition, selectedObjectIndex);
         if (!placementValidity)
             return;
+        
+        int index = objectPlacer.PlaceObject(objectDatabase.objectsData[selectedObjectIndex].prefab, grid.CellToWorld(gridPosition));
 
-        GameObject newObject = Instantiate(objectDatabase.objectsData[selectedObjectIndex].prefab);
-        newObject.transform.position = grid.CellToWorld(gridPosition);
-
-        placedGameObjects.Add(newObject);
         GridData selectedData = GetSelectedData(selectedObjectIndex);
 
-        selectedData.AddObjectAt(gridPosition, objectDatabase.objectsData[selectedObjectIndex].positionsFilled, objectDatabase.objectsData[selectedObjectIndex].ID, placedGameObjects.Count - 1);
+        selectedData.AddObjectAt(gridPosition, objectDatabase.objectsData[selectedObjectIndex].positionsFilled, objectDatabase.objectsData[selectedObjectIndex].ID, index);
         
     }
 

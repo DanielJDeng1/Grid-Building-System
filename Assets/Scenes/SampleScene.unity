@@ -521,6 +521,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 166735499}
+  - component: {fileID: 166735500}
   m_Layer: 0
   m_Name: ObjectPlacer
   m_TagString: Untagged
@@ -543,6 +544,18 @@ Transform:
   m_Children: []
   m_Father: {fileID: 619994497}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &166735500
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 166735498}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7fa5d71a9a16b5c4f829a3f4d0b8979d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ObjectPlacer
 --- !u!1 &251368683
 GameObject:
   m_ObjectHideFlags: 0
@@ -1377,6 +1390,7 @@ MonoBehaviour:
   edgeDatabase: {fileID: 11400000, guid: 84c7c0da4635bc34c9896f980fe3e421, type: 2}
   gridVisualization: {fileID: 429430681}
   preview: {fileID: 967919790}
+  objectPlacer: {fileID: 166735500}
 --- !u!1 &619994496
 GameObject:
   m_ObjectHideFlags: 0

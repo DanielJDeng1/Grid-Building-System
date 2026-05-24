@@ -40,7 +40,7 @@ public class GridData
         List<Vector3Int> positionsToOccupy = CalculatePositions(gridPosition, positionsFilled);
         foreach (var pos in positionsToOccupy)
         {
-            if (placedObjects.ContainsKey(pos))
+            if (placedObjects.ContainsKey(pos) && placedObjects[pos] != null)
                 return false;
         }
         return true;
