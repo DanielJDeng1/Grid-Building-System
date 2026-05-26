@@ -44,6 +44,16 @@ public class PlacementSystem : MonoBehaviour
         inputManager.OnExit += StopPlacement;
     }
 
+    public void StartRemoving()
+    {
+        StopPlacement();
+        gridVisualization.SetActive(true);
+        buildingState = new GridRemovalState(grid, preview, objectPlacer, floorData, furnitureData, ceilingData);
+
+        inputManager.OnMouseRelease += PlaceStructure;
+        inputManager.OnExit += StopPlacement;
+    }
+
     public void StartEdgePlacement(int ID)
     {
 

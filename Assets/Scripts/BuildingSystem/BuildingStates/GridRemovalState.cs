@@ -13,6 +13,8 @@ public class GridRemovalState : IBuildingState
     ObjectPlacer objectPlacer;
     GridData selectedData;
 
+    List<Vector2Int> positionsToBeFilled;
+
     public GridRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
     {
         this.grid = grid;
@@ -21,6 +23,7 @@ public class GridRemovalState : IBuildingState
         this.floorData = floorData;
         this.furnitureData = furnitureData;
         this.ceilingData = ceilingData;
+        positionsToBeFilled = new(){Vector2Int.zero};
 
         previewSystem.StartShowingRemovePreview();
     }
@@ -33,7 +36,6 @@ public class GridRemovalState : IBuildingState
     public void OnAction(Vector3Int gridPosition)
     {
         selectedData = null;
-        List<Vector2Int> positionsToBeFilled = new(){Vector2Int.zero};
         if (!furnitureData.CanPlaceObjectAt(gridPosition, positionsToBeFilled))
         {
             selectedData = furnitureData;
@@ -51,12 +53,20 @@ public class GridRemovalState : IBuildingState
         if (gameObjectIndex == -1)
             return;
 
-        selectedData.RemoveObjectAt(gridPosition);   
+        selectedData.RemoveObjectAt(gridPosition);  
+        objectPlacer.RemoveObjectAt(gameObjectIndex);
+
     }
 
-    public void UpdateState(Vector3Int mousePosition)
+    private bool CheckIfSelectionIsValid(Vector3Int gridPosition)
     {
-        
+        return !(furnitureData.CanPlaceObjectAt(gridPosition, positionsToBeFilled) && floorData.CanPlaceObjectAt(gridPosition, positionsToBeFilled));
+    }
+
+    public void UpdateState(Vector3Int gridPosition)
+    {
+        bool validity = CheckIfSelectionIsValid(gridPosition);
+        previewSystem.UpdatePosition(grid.CellToWorld(gridPosition));
     }
 
     public void Rotate(Vector3Int gridPosition)
