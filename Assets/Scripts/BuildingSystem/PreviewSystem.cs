@@ -35,7 +35,7 @@ public class PreviewSystem : MonoBehaviour
             position.z);
     }
 
-    internal void StartShowingRemovePreview()
+    public void StartShowingRemovePreview()
     {
         
     }

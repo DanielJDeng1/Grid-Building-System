@@ -14,6 +14,7 @@ public class GridRemovalState : IBuildingState
     GridData selectedData;
 
     List<Vector2Int> positionsToBeFilled;
+    
 
     public GridRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
     {

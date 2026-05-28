@@ -24,7 +24,7 @@ MonoBehaviour:
     - {x: 0, y: 0}
     prefab: {fileID: 1495981623883154040, guid: f1d56489f2b75d3488a1413ad74bea4a, type: 3}
     ID: 1
-    buildType: 0
+    buildType: 1
   - name: Furniture
     positionsFilled:
     - {x: 0, y: 0}
@@ -32,4 +32,4 @@ MonoBehaviour:
     - {x: 0, y: 1}
     prefab: {fileID: 4676486647604318280, guid: 4058da6ae6d53794b8be77f5a9b47283, type: 3}
     ID: 2
-    buildType: 0
+    buildType: 1
