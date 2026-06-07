@@ -15,15 +15,15 @@ public class PlacementSystem : MonoBehaviour
 
     [SerializeField] private GameObject gridVisualization;
 
-    [SerializeField] private PreviewSystem preview;
-
     private GridData floorData, furnitureData, ceilingData;
 
     [SerializeField] private ObjectPlacer objectPlacer;
 
-    private Vector3Int lastDetectedPosition = Vector3Int.zero;
+    private Vector3Int lastDetectedPosition = new Vector3Int(0, -999, 0);
 
     IBuildingState buildingState;
+
+    IPreviewState preview;
 
     private void Start()
     {
@@ -38,10 +38,13 @@ public class PlacementSystem : MonoBehaviour
         StopPlacement();
         gridVisualization.SetActive(true);
 
-        buildingState = new GridState(ID, grid, preview, objectDatabase, objectPlacer, floorData, furnitureData, ceilingData);
+        preview = new GridPreview();
+
+        buildingState = new GridState(ID, grid, preview,objectDatabase, objectPlacer, floorData, furnitureData, ceilingData);
         
         inputManager.OnMouseRelease += PlaceStructure;
         inputManager.OnExit += StopPlacement;
+        inputManager.OnPressR += Rotate;
     }
 
     public void StartRemoving()
@@ -87,9 +90,16 @@ public class PlacementSystem : MonoBehaviour
         inputManager.OnMouseRelease -= PlaceEdge;
         inputManager.OnMouseRelease -= PlaceStructure;
         inputManager.OnExit -= StopPlacement;
+        inputManager.OnPressR -= Rotate;
+
         lastDetectedPosition = Vector3Int.zero;
 
         buildingState = null;
+    }
+
+    private void Rotate()
+    {
+        buildingState.Rotate(lastDetectedPosition);
     }
 
     private void Update()
@@ -101,7 +111,7 @@ public class PlacementSystem : MonoBehaviour
         Vector3Int gridPosition = grid.WorldToCell(mousePosition);
 
         if (lastDetectedPosition != gridPosition)
-            preview.UpdatePosition(grid.CellToWorld(gridPosition));
+            buildingState.UpdateState(gridPosition);
     }
 
 }

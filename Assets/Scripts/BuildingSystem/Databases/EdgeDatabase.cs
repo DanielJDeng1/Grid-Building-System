@@ -20,4 +20,6 @@ public class EdgeData
 
     [field: SerializeField] public int ID;
 
+    [field: SerializeField] public ObjectBuildType buildType;
+
 }

@@ -6,14 +6,15 @@ public class GridState : IBuildingState
     private int selectedObjectIndex = -1;
     int ID;
     Grid grid;
-    PreviewSystem previewSystem;
+    IPreviewState previewSystem;
     ObjectDatabase database;
     GridData floorData, furnitureData, ceilingData;
     ObjectPlacer objectPlacer;
-
     GridData selectedData;
 
-    public GridState(int ID, Grid grid, PreviewSystem previewSystem, ObjectDatabase database, ObjectPlacer objectPlacer, 
+    GridRotation currentRotation = GridRotation.Deg0;
+
+    public GridState(int ID, Grid grid, IPreviewState previewSystem, ObjectDatabase database, ObjectPlacer objectPlacer, 
                     GridData floorData, GridData furnitureData, GridData ceilingData)
     {
         selectedObjectIndex = database.objectsData.FindIndex(data => data.ID == ID);
@@ -32,7 +33,7 @@ public class GridState : IBuildingState
 
         selectedData = GetSelectedData(selectedObjectIndex);
 
-        previewSystem.StartShowingPlacementPreview(database.objectsData[selectedObjectIndex].prefab);
+        previewSystem.StartShowingPreview(database.objectsData[selectedObjectIndex].prefab);
     }
 
     public void EndState()
@@ -47,9 +48,9 @@ public class GridState : IBuildingState
         if (!placementValidity)
             return;
         
-        int index = objectPlacer.PlaceObject(database.objectsData[selectedObjectIndex].prefab, grid.CellToWorld(gridPosition));
+        int index = objectPlacer.PlaceObject(database.objectsData[selectedObjectIndex].prefab, grid.CellToWorld(gridPosition), currentRotation);
 
-        selectedData.AddObjectAt(gridPosition, database.objectsData[selectedObjectIndex].positionsFilled, database.objectsData[selectedObjectIndex].ID, index);
+        selectedData.AddObjectAt(gridPosition, database.objectsData[selectedObjectIndex].positionsFilled, database.objectsData[selectedObjectIndex].ID, index, currentRotation);
     }
 
     public void UpdateState(Vector3Int gridPosition)
@@ -59,7 +60,18 @@ public class GridState : IBuildingState
 
     public void Rotate(Vector3Int gridPosition)
     {
-        
+        currentRotation = (GridRotation)(((int)currentRotation + 1) % 4);
+        previewSystem.RotatePreview(gridPosition);
+        /*
+        switch
+        {
+            GridRotation.Deg0 => 0f,
+            GridRotation.Deg90 => 90f,
+            GridRotation.Deg180 => 180f,
+            GridRotation.Deg270 => 270f,
+            _ => 0f
+        });
+        */
     }
 
     public void OnHold(Vector3Int mousePosition)
@@ -69,9 +81,7 @@ public class GridState : IBuildingState
 
     private bool CheckPlacementValidity(Vector3Int gridPosition, int selectedObjectIndex)
     {
-        
-        return selectedData.CanPlaceObjectAt(gridPosition, database.objectsData[selectedObjectIndex].positionsFilled);
-        
+        return selectedData.CanPlaceObjectAt(gridPosition, database.objectsData[selectedObjectIndex].positionsFilled, currentRotation);
     }
 
     private GridData GetSelectedData(int selectedObjectIndex)
@@ -84,4 +94,12 @@ public class GridState : IBuildingState
         return selectedData;
     }
 
+}
+
+public enum GridRotation
+{
+    Deg0,
+    Deg90,
+    Deg180,
+    Deg270
 }

@@ -11,9 +11,11 @@ public class GridData
 {
     Dictionary<Vector3Int, PlacedObject> placedObjects = new();
 
-    public void AddObjectAt(Vector3Int gridPosition, List<Vector2Int> positionsFilled, int ID, int placedObjectIndex)
+    Dictionary<Edge, PlacedEdge> placedEdges = new();
+
+    public void AddObjectAt(Vector3Int gridPosition, List<Vector2Int> positionsFilled, int ID, int placedObjectIndex, GridRotation rotation)
     {
-        List<Vector3Int> positionsToOccupy = CalculatePositions(gridPosition, positionsFilled);
+        List<Vector3Int> positionsToOccupy = CalculatePositions(gridPosition, positionsFilled, rotation);
         PlacedObject data = new PlacedObject(positionsToOccupy, ID, placedObjectIndex);
         foreach(var position in positionsToOccupy)
         {
@@ -24,20 +26,45 @@ public class GridData
 
     }
 
-    private List<Vector3Int> CalculatePositions(Vector3Int gridPosition, List<Vector2Int> positionsFilled)
+    private List<Vector3Int> CalculatePositions(Vector3Int gridPosition, List<Vector2Int> positionsFilled, GridRotation rotation)
     {
         List<Vector3Int> returnValues = new();
-        for (int i = 0; i < positionsFilled.Count; i++)
+
+        switch (rotation)
         {
-            returnValues.Add(gridPosition + new Vector3Int(positionsFilled[i].x, gridPosition.y, positionsFilled[i].y));
+            case GridRotation.Deg0:
+                for (int i = 0; i < positionsFilled.Count; i++)
+                {
+                    returnValues.Add(gridPosition + new Vector3Int(positionsFilled[i].x, 0, positionsFilled[i].y));
+                }
+                break;
+            case GridRotation.Deg90:
+                for (int i = 0; i < positionsFilled.Count; i++)
+                {
+                    returnValues.Add(gridPosition + new Vector3Int(positionsFilled[i].y, 0, -positionsFilled[i].x));
+                }
+                break;
+            case GridRotation.Deg180:
+                for (int i = 0; i < positionsFilled.Count; i++)
+                {
+                    returnValues.Add(gridPosition + new Vector3Int(-positionsFilled[i].x, 0, -positionsFilled[i].y));
+                }
+                break;
+            default:
+                for (int i = 0; i < positionsFilled.Count; i++)
+                {
+                    returnValues.Add(gridPosition + new Vector3Int(-positionsFilled[i].y, 0, positionsFilled[i].x));
+                }
+                break;            
         }
 
         return returnValues;
     }
 
-    public bool CanPlaceObjectAt(Vector3Int gridPosition, List<Vector2Int> positionsFilled)
+    public bool CanPlaceObjectAt(Vector3Int gridPosition, List<Vector2Int> positionsFilled, GridRotation rotation)
     {
-        List<Vector3Int> positionsToOccupy = CalculatePositions(gridPosition, positionsFilled);
+        List<Vector3Int> positionsToOccupy = CalculatePositions(gridPosition, positionsFilled, rotation);
+
         foreach (var pos in positionsToOccupy)
         {
             if (placedObjects.ContainsKey(pos) && placedObjects[pos] != null)
@@ -46,7 +73,7 @@ public class GridData
         return true;
     }
     
-    internal int GetRepresentationIndex(Vector3Int gridPosition)
+    public int GetRepresentationIndex(Vector3Int gridPosition)
     {
         if (!placedObjects.ContainsKey(gridPosition))
             return -1;
@@ -54,11 +81,71 @@ public class GridData
         return placedObjects[gridPosition].placedObjectIndex;
     }
 
-    internal void RemoveObjectAt(Vector3Int gridPosition)
+    public void RemoveObjectAt(Vector3Int gridPosition)
     {
         foreach (var pos in placedObjects[gridPosition].occupiedPositions)
         {
             placedObjects.Remove(pos);
+        }
+    }
+
+
+    //edge placement and removal
+
+    public void AddEdgeAt(Edge edge, int ID, int placedObjectIndex, EdgeRotation rotation)
+    {
+        List<Edge> edgesToOccupy = CalculateEdges(edge, rotation);
+        PlacedEdge data = new PlacedEdge(edgesToOccupy, ID, placedObjectIndex);
+        foreach(var e in edgesToOccupy)
+        {
+            if (placedEdges.ContainsKey(e))
+                throw new Exception($"Dictionary already contains this edge {e}");
+            placedEdges[e] = data;
+        }   
+
+    }
+
+    private List<Edge> CalculateEdges(Edge edge, EdgeRotation rotation)
+    {
+        List<Edge> returnValues = new();
+        switch (rotation)
+        {
+            case EdgeRotation.Deg0:
+                returnValues.Add(edge);
+                break;
+            case EdgeRotation.Deg90:
+                returnValues.Add(new Edge(edge.end1, edge.end2));
+                break;         
+        }
+
+        return returnValues;
+    }
+
+    public bool CanPlaceEdgeAt(Edge edge, EdgeRotation rotation)
+    {
+        List<Edge> edgesToOccupy = CalculateEdges(edge, rotation);
+
+        foreach (var e in edgesToOccupy)
+        {
+            if (placedEdges.ContainsKey(e) && placedEdges[e] != null)
+                return false;
+        }
+        return true;
+    }
+
+    public int GetEdgeRepresentationIndex(Edge edge)
+    {
+        if (!placedEdges.ContainsKey(edge))
+            return -1;
+
+        return placedEdges[edge].placedObjectIndex;
+    }
+
+    public void RemoveEdgeAt(Edge edge)
+    {
+        foreach (var e in placedEdges[edge].occupiedEdges)
+        {
+            placedEdges.Remove(e);
         }
     }
 

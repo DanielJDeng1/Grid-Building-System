@@ -8,7 +8,7 @@ public class GridRemovalState : IBuildingState
 
     private int gameObjectIndex = -1;
     Grid grid;
-    PreviewSystem previewSystem;
+    GridPreview previewSystem;
     GridData floorData, furnitureData, ceilingData;
     ObjectPlacer objectPlacer;
     GridData selectedData;
@@ -16,7 +16,7 @@ public class GridRemovalState : IBuildingState
     List<Vector2Int> positionsToBeFilled;
     
 
-    public GridRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
+    public GridRemovalState(Grid grid, GridPreview previewSystem, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
     {
         this.grid = grid;
         this.previewSystem = previewSystem;
@@ -26,22 +26,22 @@ public class GridRemovalState : IBuildingState
         this.ceilingData = ceilingData;
         positionsToBeFilled = new(){Vector2Int.zero};
 
-        previewSystem.StartShowingRemovePreview();
+        previewSystem.StartShowingPreview();
     }
 
     public void EndState()
     {
-        previewSystem.StartShowingRemovePreview();
+        previewSystem.StopShowingPreview();
     }
 
     public void OnAction(Vector3Int gridPosition)
     {
         selectedData = null;
-        if (!furnitureData.CanPlaceObjectAt(gridPosition, positionsToBeFilled))
+        if (!furnitureData.CanPlaceObjectAt(gridPosition, positionsToBeFilled, GridRotation.Deg0))
         {
             selectedData = furnitureData;
         }
-        else if (!floorData.CanPlaceObjectAt(gridPosition, positionsToBeFilled))
+        else if (!floorData.CanPlaceObjectAt(gridPosition, positionsToBeFilled, GridRotation.Deg0))
         {
             selectedData = floorData;
         }
@@ -61,7 +61,7 @@ public class GridRemovalState : IBuildingState
 
     private bool CheckIfSelectionIsValid(Vector3Int gridPosition)
     {
-        return !(furnitureData.CanPlaceObjectAt(gridPosition, positionsToBeFilled) && floorData.CanPlaceObjectAt(gridPosition, positionsToBeFilled));
+        return !(furnitureData.CanPlaceObjectAt(gridPosition, positionsToBeFilled, GridRotation.Deg0) && floorData.CanPlaceObjectAt(gridPosition, positionsToBeFilled, GridRotation.Deg0));
     }
 
     public void UpdateState(Vector3Int gridPosition)
@@ -72,7 +72,7 @@ public class GridRemovalState : IBuildingState
 
     public void Rotate(Vector3Int gridPosition)
     {
-        
+        return;
     }
 
     public void OnHold(Vector3Int mousePosition)

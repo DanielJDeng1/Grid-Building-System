@@ -8,7 +8,7 @@ public interface IBuildingState
 
     void UpdateState(Vector3Int mousePosition);
 
-    void Rotate(Vector3Int gridPosition);
+    void Rotate(Vector3Int mousePosition);
 
     void OnHold(Vector3Int mousePosition);
 

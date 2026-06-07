@@ -1,13 +1,12 @@
-
 using UnityEngine;
 
-public class PreviewSystem : MonoBehaviour
+public class GridPreview : MonoBehaviour, IPreviewState
 {
-    /*[SerializeField] private float previewYOffset = 0.06f;
+    [SerializeField] private float previewYOffset = 0.06f;
 
     private GameObject previewObject;
 
-    public void StartShowingPlacementPreview(GameObject prefab)
+    public void StartShowingPreview(GameObject prefab)
     {
         previewObject = Instantiate(prefab);
     }
@@ -34,12 +33,7 @@ public class PreviewSystem : MonoBehaviour
             position.z);
     }
 
-    public void StartShowingRemovePreview()
-    {
-        
-    }
-
-    public void UpdateRotation(Vector3 position)
+    public void RotatePreview(Vector3Int position)
     {
         if (previewObject == null)
             return;
@@ -50,5 +44,5 @@ public class PreviewSystem : MonoBehaviour
             child.transform.RotateAround(pivot, Vector3.up, 90f);
         }
 
-    }*/
+    }
 }
