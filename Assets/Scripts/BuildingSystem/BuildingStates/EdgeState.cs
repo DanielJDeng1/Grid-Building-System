@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class EdgeState : MonoBehaviour
+public class EdgeState : IBuildingState
 {
 
     private int selectedObjectIndex = -1;

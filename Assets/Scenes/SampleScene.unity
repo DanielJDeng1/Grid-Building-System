@@ -1402,8 +1402,8 @@ MonoBehaviour:
   objectDatabase: {fileID: 11400000, guid: 800c1ce30e8f14f4e8c5339519ee38fd, type: 2}
   edgeDatabase: {fileID: 11400000, guid: 84c7c0da4635bc34c9896f980fe3e421, type: 2}
   gridVisualization: {fileID: 429430681}
-  preview: {fileID: 967919790}
   objectPlacer: {fileID: 166735500}
+  preview: {fileID: 967919790}
 --- !u!1 &619994496
 GameObject:
   m_ObjectHideFlags: 0

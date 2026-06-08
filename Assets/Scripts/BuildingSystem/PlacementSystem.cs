@@ -23,7 +23,7 @@ public class PlacementSystem : MonoBehaviour
 
     IBuildingState buildingState;
 
-    PreviewSystem preview;
+    [SerializeField] private PreviewSystem preview;
 
     private void Start()
     {
