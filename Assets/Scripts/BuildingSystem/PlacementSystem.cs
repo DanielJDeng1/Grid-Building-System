@@ -23,7 +23,7 @@ public class PlacementSystem : MonoBehaviour
 
     IBuildingState buildingState;
 
-    IPreviewState preview;
+    PreviewSystem preview;
 
     private void Start()
     {
@@ -38,9 +38,7 @@ public class PlacementSystem : MonoBehaviour
         StopPlacement();
         gridVisualization.SetActive(true);
 
-        preview = new GridPreview();
-
-        buildingState = new GridState(ID, grid, preview,objectDatabase, objectPlacer, floorData, furnitureData, ceilingData);
+        buildingState = new GridState(ID, grid, preview, objectDatabase, objectPlacer, floorData, furnitureData, ceilingData);
         
         inputManager.OnMouseRelease += PlaceStructure;
         inputManager.OnExit += StopPlacement;

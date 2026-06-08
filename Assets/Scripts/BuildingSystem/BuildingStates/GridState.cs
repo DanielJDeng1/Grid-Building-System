@@ -6,7 +6,7 @@ public class GridState : IBuildingState
     private int selectedObjectIndex = -1;
     int ID;
     Grid grid;
-    IPreviewState previewSystem;
+    PreviewSystem previewSystem;
     ObjectDatabase database;
     GridData floorData, furnitureData, ceilingData;
     ObjectPlacer objectPlacer;
@@ -14,7 +14,7 @@ public class GridState : IBuildingState
 
     GridRotation currentRotation = GridRotation.Deg0;
 
-    public GridState(int ID, Grid grid, IPreviewState previewSystem, ObjectDatabase database, ObjectPlacer objectPlacer, 
+    public GridState(int ID, Grid grid, PreviewSystem previewSystem, ObjectDatabase database, ObjectPlacer objectPlacer, 
                     GridData floorData, GridData furnitureData, GridData ceilingData)
     {
         selectedObjectIndex = database.objectsData.FindIndex(data => data.ID == ID);
@@ -33,7 +33,6 @@ public class GridState : IBuildingState
 
         selectedData = GetSelectedData(selectedObjectIndex);
 
-        previewSystem.StartShowingPreview(database.objectsData[selectedObjectIndex].prefab);
     }
 
     public void EndState()
@@ -61,7 +60,6 @@ public class GridState : IBuildingState
     public void Rotate(Vector3Int gridPosition)
     {
         currentRotation = (GridRotation)(((int)currentRotation + 1) % 4);
-        previewSystem.RotatePreview(gridPosition);
         /*
         switch
         {

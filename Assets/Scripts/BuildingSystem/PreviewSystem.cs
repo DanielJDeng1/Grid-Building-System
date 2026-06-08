@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class PreviewSystem : MonoBehaviour
 {
-    /*[SerializeField] private float previewYOffset = 0.06f;
+    [SerializeField] private float previewYOffset = 0.06f;
 
     private GameObject previewObject;
 
@@ -49,6 +49,7 @@ public class PreviewSystem : MonoBehaviour
         {
             child.transform.RotateAround(pivot, Vector3.up, 90f);
         }
+    }
 
-    }*/
+    
 }

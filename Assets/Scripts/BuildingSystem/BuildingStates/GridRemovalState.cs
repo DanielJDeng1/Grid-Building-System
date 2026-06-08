@@ -8,7 +8,7 @@ public class GridRemovalState : IBuildingState
 
     private int gameObjectIndex = -1;
     Grid grid;
-    GridPreview previewSystem;
+    PreviewSystem previewSystem;
     GridData floorData, furnitureData, ceilingData;
     ObjectPlacer objectPlacer;
     GridData selectedData;
@@ -16,7 +16,7 @@ public class GridRemovalState : IBuildingState
     List<Vector2Int> positionsToBeFilled;
     
 
-    public GridRemovalState(Grid grid, GridPreview previewSystem, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
+    public GridRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
     {
         this.grid = grid;
         this.previewSystem = previewSystem;
@@ -26,7 +26,6 @@ public class GridRemovalState : IBuildingState
         this.ceilingData = ceilingData;
         positionsToBeFilled = new(){Vector2Int.zero};
 
-        previewSystem.StartShowingPreview();
     }
 
     public void EndState()

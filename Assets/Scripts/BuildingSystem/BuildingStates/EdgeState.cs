@@ -6,7 +6,7 @@ public class EdgeState : MonoBehaviour
     private int selectedObjectIndex = -1;
     int ID;
     Grid grid;
-    EdgePreview previewSystem;
+    PreviewSystem previewSystem;
     EdgeDatabase database;
     GridData floorData, furnitureData, ceilingData;
     ObjectPlacer objectPlacer;
@@ -14,7 +14,7 @@ public class EdgeState : MonoBehaviour
 
     EdgeRotation currentRotation = EdgeRotation.Deg0;
 
-    public EdgeState(int ID, Grid grid, EdgePreview previewSystem, EdgeDatabase database, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
+    public EdgeState(int ID, Grid grid, PreviewSystem previewSystem, EdgeDatabase database, ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
     {
         selectedObjectIndex = database.edgeData.FindIndex(data => data.ID == ID);
 
@@ -61,7 +61,6 @@ public class EdgeState : MonoBehaviour
     public void Rotate(Vector3Int gridPosition)
     {
         currentRotation = (EdgeRotation)(((int)currentRotation + 1) % 2);
-        previewSystem.RotatePreview(gridPosition);
     }   
 
     public void OnHold(Vector3Int gridPosition)
