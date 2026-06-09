@@ -14,7 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::EdgeDatabase
   edgeData:
   - name: Wall
-    positionsFilled: 01000000
-    prefab: {fileID: 2215295343544389489, guid: 22d0c3cb2c30a5a43a114f4af1429183, type: 3}
+    positionsFilled: 00000000
+    prefab: {fileID: 1091495076126864961, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
     ID: 0
+    buildType: 0
+  - name: Wall
+    positionsFilled: 0000000001000000
+    prefab: {fileID: 4793896007788827952, guid: 045cfb1c176ceaf4894b034b756184c0, type: 3}
+    ID: 1
     buildType: 0

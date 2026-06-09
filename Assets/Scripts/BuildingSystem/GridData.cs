@@ -4,56 +4,75 @@ using System;
 using UnityEngine;
 
 /// <summary>
-/// Abstraction of placed objects
-/// Maps locations or edge locations to build objects
+/// Abstraction of placed objects and edges.
+/// Maps tile locations to grid objects and edge locations to edge objects (walls, fences, etc).
+/// Maintains separate dictionaries for three build layers: floor, furniture, ceiling.
+/// 
+/// EDGE COORDINATE SYSTEM:
+/// Edges are defined by two adjacent tile positions representing the edge BETWEEN them.
+/// 
+/// Edge Rotation Mapping (relative to mouse-hovered tile at position (x, z)):
+/// - Deg0 (Horizontal): North edge from (x, z+1) to (x+1, z+1)
+/// - Deg90 (Vertical): East edge from (x+1, z+1) to (x+1, z)
+/// 
+/// Multi-Edge Example:
+/// If positionsFilled = {0, 1} for a 2-unit wall at tile (0, 0):
+/// - Deg0: Edges [(0,1)-(1,1)] and [(1,1)-(2,1)] - extends horizontally along X-axis
+/// - Deg90: Edges [(1,1)-(1,0)] and [(1,0)-(1,-1)] - extends vertically along Z-axis
 /// </summary>
 public class GridData
 {
-    Dictionary<Vector3Int, PlacedObject> placedObjects = new();
+    private Dictionary<Vector3Int, PlacedObject> _placedObjects = new();
+    private Dictionary<Edge, PlacedEdge> _placedEdges = new();
 
-    Dictionary<Edge, PlacedEdge> placedEdges = new();
+    #region Grid Object Placement
 
     public void AddObjectAt(Vector3Int gridPosition, List<Vector2Int> positionsFilled, int ID, int placedObjectIndex, GridRotation rotation)
     {
         List<Vector3Int> positionsToOccupy = CalculatePositions(gridPosition, positionsFilled, rotation);
         PlacedObject data = new PlacedObject(positionsToOccupy, ID, placedObjectIndex);
+        
         foreach(var position in positionsToOccupy)
         {
-            if (placedObjects.ContainsKey(position))
+            if (_placedObjects.ContainsKey(position))
                 throw new Exception($"Dictionary already contains this position {position}");
-            placedObjects[position] = data;
+            _placedObjects[position] = data;
         }   
-
     }
 
     private List<Vector3Int> CalculatePositions(Vector3Int gridPosition, List<Vector2Int> positionsFilled, GridRotation rotation)
     {
         List<Vector3Int> returnValues = new();
 
+        // Apply 2D rotation matrix to each position offset
+        // Rotation is around Y-axis (vertical), affecting X and Z coordinates
         switch (rotation)
         {
             case GridRotation.Deg0:
-                for (int i = 0; i < positionsFilled.Count; i++)
+                foreach (var offset in positionsFilled)
                 {
-                    returnValues.Add(gridPosition + new Vector3Int(positionsFilled[i].x, 0, positionsFilled[i].y));
+                    returnValues.Add(gridPosition + new Vector3Int(offset.x, 0, offset.y));
                 }
                 break;
             case GridRotation.Deg90:
-                for (int i = 0; i < positionsFilled.Count; i++)
+                foreach (var offset in positionsFilled)
                 {
-                    returnValues.Add(gridPosition + new Vector3Int(positionsFilled[i].y, 0, -positionsFilled[i].x));
+                    // 90° rotation: (x, z) -> (z, -x)
+                    returnValues.Add(gridPosition + new Vector3Int(offset.y, 0, -offset.x));
                 }
                 break;
             case GridRotation.Deg180:
-                for (int i = 0; i < positionsFilled.Count; i++)
+                foreach (var offset in positionsFilled)
                 {
-                    returnValues.Add(gridPosition + new Vector3Int(-positionsFilled[i].x, 0, -positionsFilled[i].y));
+                    // 180° rotation: (x, z) -> (-x, -z)
+                    returnValues.Add(gridPosition + new Vector3Int(-offset.x, 0, -offset.y));
                 }
                 break;
-            default:
-                for (int i = 0; i < positionsFilled.Count; i++)
+            case GridRotation.Deg270:
+                foreach (var offset in positionsFilled)
                 {
-                    returnValues.Add(gridPosition + new Vector3Int(-positionsFilled[i].y, 0, positionsFilled[i].x));
+                    // 270° rotation: (x, z) -> (-z, x)
+                    returnValues.Add(gridPosition + new Vector3Int(-offset.y, 0, offset.x));
                 }
                 break;            
         }
@@ -67,7 +86,7 @@ public class GridData
 
         foreach (var pos in positionsToOccupy)
         {
-            if (placedObjects.ContainsKey(pos) && placedObjects[pos] != null)
+            if (_placedObjects.ContainsKey(pos) && _placedObjects[pos] != null)
                 return false;
         }
         return true;
@@ -75,59 +94,101 @@ public class GridData
     
     public int GetRepresentationIndex(Vector3Int gridPosition)
     {
-        if (!placedObjects.ContainsKey(gridPosition))
+        if (!_placedObjects.ContainsKey(gridPosition))
             return -1;
 
-        return placedObjects[gridPosition].placedObjectIndex;
+        return _placedObjects[gridPosition].placedObjectIndex;
     }
 
     public void RemoveObjectAt(Vector3Int gridPosition)
     {
-        foreach (var pos in placedObjects[gridPosition].occupiedPositions)
+        if (!_placedObjects.ContainsKey(gridPosition))
+            return;
+
+        foreach (var pos in _placedObjects[gridPosition].occupiedPositions)
         {
-            placedObjects.Remove(pos);
+            _placedObjects.Remove(pos);
         }
     }
 
+    #endregion
 
-    //edge placement and removal
+    #region Edge Placement
 
-    public void AddEdgeAt(Edge edge, int ID, int placedObjectIndex, EdgeRotation rotation)
+    /// <summary>
+    /// Adds an edge at the specified base position with rotation.
+    /// The edge parameter should be the base edge for Deg0 rotation,
+    /// and positionsFilled from EdgeData determines how many edges are occupied.
+    /// </summary>
+    public void AddEdgeAt(Edge baseEdge, List<int> positionsFilled, int ID, int placedObjectIndex, EdgeRotation rotation)
     {
-        List<Edge> edgesToOccupy = CalculateEdges(edge, rotation);
+        List<Edge> edgesToOccupy = CalculateEdges(baseEdge, positionsFilled, rotation);
         PlacedEdge data = new PlacedEdge(edgesToOccupy, ID, placedObjectIndex);
-        foreach(var e in edgesToOccupy)
+        
+        foreach(var edge in edgesToOccupy)
         {
-            if (placedEdges.ContainsKey(e))
-                throw new Exception($"Dictionary already contains this edge {e}");
-            placedEdges[e] = data;
-        }   
-
+            if (_placedEdges.ContainsKey(edge))
+                throw new Exception($"Dictionary already contains this edge {edge}");
+            _placedEdges[edge] = data;
+        } 
+        
     }
 
-    private List<Edge> CalculateEdges(Edge edge, EdgeRotation rotation)
+    /// <summary>
+    /// Calculates all edges occupied by a multi-edge structure based on rotation.
+    /// 
+    /// Algorithm:
+    /// - Deg0: Extends horizontally along X-axis (North edges of sequential tiles)
+    /// - Deg90: Extends vertically along Z-axis (East edges of sequential tiles)
+    /// 
+    /// Each integer in positionsFilled represents an edge segment relative to base position.
+    /// </summary>
+    private List<Edge> CalculateEdges(Edge baseEdge, List<int> positionsFilled, EdgeRotation rotation)
     {
         List<Edge> returnValues = new();
+        Vector3Int baseTile = baseEdge.end1; // Use end1 as the reference tile position
+
         switch (rotation)
         {
             case EdgeRotation.Deg0:
-                returnValues.Add(edge);
+                // Horizontal edges along X-axis
+                // Base edge is North edge: (x, z+1) to (x+1, z+1)
+                foreach (int offset in positionsFilled)
+                {
+                    Vector3Int tilePos = baseTile + new Vector3Int(offset, 0, 0);
+                    Edge edge = new Edge(
+                        new Vector3Int(tilePos.x, 0, tilePos.z + 1),
+                        new Vector3Int(tilePos.x + 1, 0, tilePos.z + 1)
+                    );
+                    returnValues.Add(edge);
+                }
                 break;
+                
             case EdgeRotation.Deg90:
-                returnValues.Add(new Edge(edge.end1, edge.end2));
+                // Vertical edges along Z-axis
+                // Base edge is East edge: (x+1, z+1) to (x+1, z)
+                foreach (int offset in positionsFilled)
+                {
+                    Vector3Int tilePos = baseTile + new Vector3Int(0, 0, -offset);
+                    Edge edge = new Edge(
+                        new Vector3Int(tilePos.x + 1, 0, tilePos.z + 1),
+                        new Vector3Int(tilePos.x + 1, 0, tilePos.z)
+                    );
+                    returnValues.Add(edge);
+                }
                 break;         
         }
 
         return returnValues;
     }
 
-    public bool CanPlaceEdgeAt(Edge edge, EdgeRotation rotation)
+    public bool CanPlaceEdgeAt(Edge baseEdge, List<int> positionsFilled, EdgeRotation rotation)
     {
-        List<Edge> edgesToOccupy = CalculateEdges(edge, rotation);
+        List<Edge> edgesToOccupy = CalculateEdges(baseEdge, positionsFilled, rotation);
 
-        foreach (var e in edgesToOccupy)
+        foreach (var edge in edgesToOccupy)
         {
-            if (placedEdges.ContainsKey(e) && placedEdges[e] != null)
+            if (_placedEdges.ContainsKey(edge) && _placedEdges[edge] != null)
                 return false;
         }
         return true;
@@ -135,58 +196,103 @@ public class GridData
 
     public int GetEdgeRepresentationIndex(Edge edge)
     {
-        if (!placedEdges.ContainsKey(edge))
+        if (!_placedEdges.ContainsKey(edge))
             return -1;
 
-        return placedEdges[edge].placedObjectIndex;
+        return _placedEdges[edge].placedObjectIndex;
     }
 
     public void RemoveEdgeAt(Edge edge)
     {
-        foreach (var e in placedEdges[edge].occupiedEdges)
+        if (!_placedEdges.ContainsKey(edge))
+            return;
+
+        foreach (var e in _placedEdges[edge].occupiedEdges)
         {
-            placedEdges.Remove(e);
+            _placedEdges.Remove(e);
         }
     }
 
+    #endregion
 }
 
-public record Edge(Vector3Int end1, Vector3Int end2);
+#region Edge Definition with Bidirectional Equality
 
-namespace System.Runtime.CompilerServices{
-    public class IsExternalInit{
+/// <summary>
+/// Represents an edge between two tile positions in 3D grid space.
+/// 
+/// CRITICAL: Implements bidirectional equality.
+/// Edge(A, B) equals Edge(B, A) for dictionary lookups and comparisons.
+/// This is essential because edge direction is arbitrary - the physical edge
+/// between tile A and tile B is the same regardless of endpoint order.
+/// 
+/// Hash code uses XOR to ensure (A, B) and (B, A) produce identical hashes.
+/// </summary>
+public record Edge
+{
+    public Vector3Int end1 { get; init; }
+    public Vector3Int end2 { get; init; }
 
+    public Edge(Vector3Int end1, Vector3Int end2)
+    {
+        this.end1 = end1;
+        this.end2 = end2;
+    }
+
+    public virtual bool Equals(Edge other)
+    {
+        if (other is null) return false;
+        
+        // Bidirectional equality: (A, B) == (B, A)
+        return (end1 == other.end1 && end2 == other.end2) || 
+               (end1 == other.end2 && end2 == other.end1);
+    }
+
+    public override int GetHashCode()
+    {
+        // XOR ensures identical hash regardless of endpoint order
+        // This is critical for Dictionary<Edge> lookups to work correctly
+        return end1.GetHashCode() ^ end2.GetHashCode();
     }
 }
+
+#endregion
+
+#region C# 9.0 Record Support for Unity 2020.x/2021.x
+namespace System.Runtime.CompilerServices
+{
+    internal class IsExternalInit { }
+}
+#endregion
+
+#region Data Structures
 
 public class PlacedObject
 {
     public List<Vector3Int> occupiedPositions;
-
     public int ID { get; set; }
-
     public int placedObjectIndex { get; set; }
 
-    public PlacedObject(List<Vector3Int> occ, int id, int index)
+    public PlacedObject(List<Vector3Int> occupiedPositions, int id, int index)
     {
-        occupiedPositions = occ;
-        ID = id;
-        placedObjectIndex = index;
+        this.occupiedPositions = occupiedPositions;
+        this.ID = id;
+        this.placedObjectIndex = index;
     }
-    
 }
 
-public class PlacedEdge{
-
+public class PlacedEdge
+{
     public List<Edge> occupiedEdges;
-    public int ID {get; set;}
+    public int ID { get; set; }
+    public int placedObjectIndex { get; set; }
 
-    public int placedObjectIndex {get; set;}
-
-    public PlacedEdge(List<Edge> edgeList, int id, int index)
+    public PlacedEdge(List<Edge> occupiedEdges, int id, int index)
     {
-        occupiedEdges = edgeList;
-        ID = id;
-        placedObjectIndex = index;
+        this.occupiedEdges = occupiedEdges;
+        this.ID = id;
+        this.placedObjectIndex = index;
     }
 }
+
+#endregion

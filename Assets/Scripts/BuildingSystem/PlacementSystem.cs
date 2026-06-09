@@ -1,116 +1,238 @@
 using UnityEngine;
-using System;
-using System.Collections;
-using System.Collections.Generic;
 
+/// <summary>
+/// Main controller for the grid-based building system.
+/// Manages building state transitions and input event binding.
+/// 
+/// SUPPORTED MODES:
+/// - Grid object placement (floors, furniture, ceilings)
+/// - Grid object removal
+/// - Edge object placement (walls, fences, railings)
+/// - Edge object removal
+/// 
+/// ARCHITECTURE:
+/// Uses State pattern to handle different building modes.
+/// Each mode (GridState, EdgeState, GridRemovalState, EdgeRemovalState)
+/// encapsulates its own logic for placement, validation, and preview.
+/// 
+/// INPUT BINDING:
+/// PlacementSystem subscribes to InputManager events and delegates
+/// to the active building state. Events are unsubscribed when state changes.
+/// 
+/// INSPECTOR SETUP:
+/// - Assign InputManager reference
+/// - Assign Grid component (Unity's Grid)
+/// - Assign ObjectDatabase ScriptableObject
+/// - Assign EdgeDatabase ScriptableObject
+/// - Assign GridVisualization GameObject
+/// - Assign ObjectPlacer component
+/// - Assign PreviewSystem component
+/// </summary>
 public class PlacementSystem : MonoBehaviour
 {
-    [SerializeField] private InputManager inputManager;
+    [Header("Dependencies")]
+    [SerializeField] private InputManager _inputManager;
+    [SerializeField] private Grid _grid;
+    [SerializeField] private ObjectDatabase _objectDatabase;
+    [SerializeField] private EdgeDatabase _edgeDatabase;
+    [SerializeField] private GameObject _gridVisualization;
+    [SerializeField] private ObjectPlacer _objectPlacer;
+    [SerializeField] private PreviewSystem _previewSystem;
 
-    [SerializeField] private Grid grid;
+    private GridData _floorData;
+    private GridData _furnitureData;
+    private GridData _ceilingData;
 
-    [SerializeField] private ObjectDatabase objectDatabase;
+    private Vector3Int _lastDetectedPosition = new Vector3Int(0, -999, 0);
 
-    [SerializeField] private EdgeDatabase edgeDatabase;
-
-    [SerializeField] private GameObject gridVisualization;
-
-    private GridData floorData, furnitureData, ceilingData;
-
-    [SerializeField] private ObjectPlacer objectPlacer;
-
-    private Vector3Int lastDetectedPosition = new Vector3Int(0, -999, 0);
-
-    IBuildingState buildingState;
-
-    [SerializeField] private PreviewSystem preview;
+    private IBuildingState _buildingState;
 
     private void Start()
     {
         StopPlacement();
-        floorData = new();
-        furnitureData = new();
-        ceilingData = new();
+        
+        // Initialize the three independent build layers
+        _floorData = new();
+        _furnitureData = new();
+        _ceilingData = new();
     }
 
+    #region State Activation
+
+    /// <summary>
+    /// Activates grid object placement mode.
+    /// </summary>
+    /// <param name="ID">Object ID from ObjectDatabase</param>
     public void StartPlacement(int ID)
     {
         StopPlacement();
-        gridVisualization.SetActive(true);
+        _gridVisualization.SetActive(true);
 
-        buildingState = new GridState(ID, grid, preview, objectDatabase, objectPlacer, floorData, furnitureData, ceilingData);
+        _buildingState = new GridState(
+            ID, 
+            _grid, 
+            _previewSystem, 
+            _objectDatabase, 
+            _objectPlacer, 
+            _floorData, 
+            _furnitureData, 
+            _ceilingData
+        );
         
-        inputManager.OnMouseRelease += PlaceStructure;
-        inputManager.OnExit += StopPlacement;
-        inputManager.OnPressR += Rotate;
+        BindInputEvents();
     }
 
+    /// <summary>
+    /// Activates grid object removal mode.
+    /// </summary>
     public void StartRemoving()
     {
         StopPlacement();
-        gridVisualization.SetActive(true);
-        buildingState = new GridRemovalState(grid, preview, objectPlacer, floorData, furnitureData, ceilingData);
+        _gridVisualization.SetActive(true);
+        
+        _buildingState = new GridRemovalState(
+            _grid, 
+            _previewSystem, 
+            _objectPlacer, 
+            _floorData, 
+            _furnitureData, 
+            _ceilingData
+        );
 
-        inputManager.OnMouseRelease += PlaceStructure;
-        inputManager.OnExit += StopPlacement;
+        BindInputEvents();
     }
 
+    /// <summary>
+    /// Activates edge object placement mode.
+    /// </summary>
+    /// <param name="ID">Edge object ID from EdgeDatabase</param>
     public void StartEdgePlacement(int ID)
     {
+        StopPlacement();
+        _gridVisualization.SetActive(true);
 
+        _buildingState = new EdgeState(
+            ID, 
+            _grid, 
+            _previewSystem, 
+            _edgeDatabase, 
+            _objectPlacer, 
+            _floorData, 
+            _furnitureData, 
+            _ceilingData
+        );
+
+        BindInputEvents();
     }
 
-    private void PlaceStructure()
+    /// <summary>
+    /// Activates edge object removal mode.
+    /// </summary>
+    public void StartEdgeRemoving()
     {
-        if (inputManager.IsPointerOverUI())
-        {
-            return;
-        }
-        Vector3 mousePosition = inputManager.GetSelectedMapPosition();
-        Vector3Int gridPosition = grid.WorldToCell(mousePosition);
+        StopPlacement();
+        _gridVisualization.SetActive(true);
 
-        buildingState.OnAction(gridPosition);
-        
+        _buildingState = new EdgeRemovalState(
+            _grid, 
+            _previewSystem, 
+            _objectPlacer, 
+            _floorData, 
+            _furnitureData, 
+            _ceilingData
+        );
+
+        BindInputEvents();
     }
 
-    private void PlaceEdge()
-    {
-        
-    }
-
+    /// <summary>
+    /// Exits building mode and cleans up state.
+    /// </summary>
     private void StopPlacement()
     {
-        if (buildingState == null)
+        if (_buildingState == null)
             return;
 
-        gridVisualization.SetActive(false);
-        buildingState.EndState();
-        inputManager.OnMouseRelease -= PlaceEdge;
-        inputManager.OnMouseRelease -= PlaceStructure;
-        inputManager.OnExit -= StopPlacement;
-        inputManager.OnPressR -= Rotate;
+        _gridVisualization.SetActive(false);
+        _buildingState.EndState();
+        
+        UnbindInputEvents();
 
-        lastDetectedPosition = Vector3Int.zero;
-
-        buildingState = null;
+        _lastDetectedPosition = Vector3Int.zero;
+        _buildingState = null;
     }
 
+    #endregion
+
+    #region Input Event Handling
+
+    /// <summary>
+    /// Binds InputManager events to building state methods.
+    /// </summary>
+    private void BindInputEvents()
+    {
+        _inputManager.OnMouseRelease += PlaceStructure;
+        _inputManager.OnExit += StopPlacement;
+        _inputManager.OnPressR += Rotate;
+    }
+
+    /// <summary>
+    /// Unbinds InputManager events to prevent memory leaks.
+    /// </summary>
+    private void UnbindInputEvents()
+    {
+        _inputManager.OnMouseRelease -= PlaceStructure;
+        _inputManager.OnExit -= StopPlacement;
+        _inputManager.OnPressR -= Rotate;
+    }
+
+    /// <summary>
+    /// Handles placement action (mouse release).
+    /// Delegates to active building state.
+    /// </summary>
+    private void PlaceStructure()
+    {
+        if (_inputManager.IsPointerOverUI())
+            return;
+
+        Vector3 mousePosition = _inputManager.GetSelectedMapPosition();
+        Vector3Int gridPosition = _grid.WorldToCell(mousePosition);
+
+        _buildingState.OnAction(gridPosition);
+    }
+
+    /// <summary>
+    /// Handles rotation action (R key press).
+    /// Delegates to active building state.
+    /// </summary>
     private void Rotate()
     {
-        buildingState.Rotate(lastDetectedPosition);
+        _buildingState.Rotate(_lastDetectedPosition);
     }
 
+    #endregion
+
+    #region Update Loop
+
+    /// <summary>
+    /// Updates building state with current mouse position every frame.
+    /// Only calls UpdateState when grid position changes to minimize overhead.
+    /// </summary>
     private void Update()
     {
-        if (buildingState == null)
+        if (_buildingState == null)
             return;
 
-        Vector3 mousePosition = inputManager.GetSelectedMapPosition();
-        Vector3Int gridPosition = grid.WorldToCell(mousePosition);
+        Vector3 mousePosition = _inputManager.GetSelectedMapPosition();
+        Vector3Int gridPosition = _grid.WorldToCell(mousePosition);
 
-        if (lastDetectedPosition != gridPosition)
-            buildingState.UpdateState(gridPosition);
+        // Only update state when grid position changes
+        if (_lastDetectedPosition != gridPosition)
+        {
+            _buildingState.UpdateState(gridPosition);
+            _lastDetectedPosition = gridPosition;
+        }
     }
 
+    #endregion
 }
-
