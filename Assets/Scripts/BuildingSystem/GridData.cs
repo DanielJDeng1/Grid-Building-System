@@ -8,17 +8,17 @@ using UnityEngine;
 /// Maps tile locations to grid objects and edge locations to edge objects (walls, fences, etc).
 /// Maintains separate dictionaries for three build layers: floor, furniture, ceiling.
 /// 
-/// EDGE COORDINATE SYSTEM:
+/// EDGE COORDINATE SYSTEM (CORRECTED):
 /// Edges are defined by two adjacent tile positions representing the edge BETWEEN them.
 /// 
 /// Edge Rotation Mapping (relative to mouse-hovered tile at position (x, z)):
-/// - Deg0 (Horizontal): North edge from (x, z+1) to (x+1, z+1)
-/// - Deg90 (Vertical): East edge from (x+1, z+1) to (x+1, z)
+/// - Deg0 (Horizontal): Edge from (x, z) to (x+1, z) along positive X-axis - 0° rotation
+/// - Deg90 (Vertical): Edge from (x, z) to (x, z-1) along negative Z-axis - 90° rotation
 /// 
 /// Multi-Edge Example:
 /// If positionsFilled = {0, 1} for a 2-unit wall at tile (0, 0):
-/// - Deg0: Edges [(0,1)-(1,1)] and [(1,1)-(2,1)] - extends horizontally along X-axis
-/// - Deg90: Edges [(1,1)-(1,0)] and [(1,0)-(1,-1)] - extends vertically along Z-axis
+/// - Deg0: Edges [(0,0)-(1,0)] and [(1,0)-(2,0)] - extends horizontally along positive X-axis
+/// - Deg90: Edges [(0,0)-(0,-1)] and [(0,-1)-(0,-2)] - extends vertically along negative Z-axis
 /// </summary>
 public class GridData
 {
@@ -117,7 +117,7 @@ public class GridData
 
     /// <summary>
     /// Adds an edge at the specified base position with rotation.
-    /// The edge parameter should be the base edge for Deg0 rotation,
+    /// The edge parameter should be the base edge for the current rotation,
     /// and positionsFilled from EdgeData determines how many edges are occupied.
     /// </summary>
     public void AddEdgeAt(Edge baseEdge, List<int> positionsFilled, int ID, int placedObjectIndex, EdgeRotation rotation)
@@ -137,42 +137,43 @@ public class GridData
     /// <summary>
     /// Calculates all edges occupied by a multi-edge structure based on rotation.
     /// 
-    /// Algorithm:
-    /// - Deg0: Extends horizontally along X-axis (North edges of sequential tiles)
-    /// - Deg90: Extends vertically along Z-axis (East edges of sequential tiles)
+    /// CORRECTED Algorithm:
+    /// - Deg0: Extends horizontally along positive X-axis
+    /// - Deg90: Extends vertically along negative Z-axis
     /// 
-    /// Each integer in positionsFilled represents an edge segment relative to base position.
+    /// Each integer in positionsFilled represents an edge segment offset from base position.
+    /// The base edge's end1 is used as the reference tile position (the pivot).
     /// </summary>
     private List<Edge> CalculateEdges(Edge baseEdge, List<int> positionsFilled, EdgeRotation rotation)
     {
         List<Edge> returnValues = new();
-        Vector3Int baseTile = baseEdge.end1; // Use end1 as the reference tile position
+        Vector3Int baseTile = baseEdge.end1; // Use end1 as the reference tile position (the pivot)
 
         switch (rotation)
         {
             case EdgeRotation.Deg0:
-                // Horizontal edges along X-axis
-                // Base edge is North edge: (x, z+1) to (x+1, z+1)
+                // Horizontal edges along positive X-axis
+                // Base edge: (x, z) to (x+1, z)
                 foreach (int offset in positionsFilled)
                 {
                     Vector3Int tilePos = baseTile + new Vector3Int(offset, 0, 0);
                     Edge edge = new Edge(
-                        new Vector3Int(tilePos.x, 0, tilePos.z + 1),
-                        new Vector3Int(tilePos.x + 1, 0, tilePos.z + 1)
+                        new Vector3Int(tilePos.x, 0, tilePos.z),
+                        new Vector3Int(tilePos.x + 1, 0, tilePos.z)
                     );
                     returnValues.Add(edge);
                 }
                 break;
                 
             case EdgeRotation.Deg90:
-                // Vertical edges along Z-axis
-                // Base edge is East edge: (x+1, z+1) to (x+1, z)
+                // Vertical edges along negative Z-axis
+                // Base edge: (x, z) to (x, z-1)
                 foreach (int offset in positionsFilled)
                 {
                     Vector3Int tilePos = baseTile + new Vector3Int(0, 0, -offset);
                     Edge edge = new Edge(
-                        new Vector3Int(tilePos.x + 1, 0, tilePos.z + 1),
-                        new Vector3Int(tilePos.x + 1, 0, tilePos.z)
+                        new Vector3Int(tilePos.x, 0, tilePos.z),
+                        new Vector3Int(tilePos.x, 0, tilePos.z - 1)
                     );
                     returnValues.Add(edge);
                 }

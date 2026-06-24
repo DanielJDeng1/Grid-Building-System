@@ -1,46 +1,62 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 /// <summary>
 /// Building state for removing edge objects (walls, fences, railings).
-/// Detects edges under the cursor and removes the entire multi-edge structure
-/// when clicked.
+/// Supports single-click removal and rotation to target different edge orientations.
 /// 
-/// REMOVAL LOGIC:
-/// Checks both possible edge orientations at the hovered tile:
-/// - North edge (horizontal)
-/// - East edge (vertical)
+/// EDGE REMOVAL LOGIC:
+/// When the player hovers over tile (x, z):
+/// - Rotation Deg0: Targets edge from (x, z) to (x+1, z) along positive X-axis - 0° rotation
+/// - Rotation Deg90: Targets edge from (x, z) to (x, z-1) along negative Z-axis - -90° rotation
 /// 
-/// Removes the first valid edge found, along with all segments in its
-/// multi-edge structure.
+/// REMOVAL PRIORITY:
+/// Checks layers in order: Furniture → Floor → Ceiling
+/// Removes the first edge found in the priority order.
 /// 
 /// PREVIEW INTEGRATION:
 /// - Activates EdgeRemovalPreview state on construction
-/// - Shows red plane indicator when hovering over removable edge
-/// - Updates validity based on whether edge exists at position
+/// - Shows red indicator when hovering over removable edge
+/// - Updates preview position and validity every frame
+/// - Rotates preview when player presses rotation key
 /// </summary>
 public class EdgeRemovalState : IBuildingState
 {
     private int _gameObjectIndex = -1;
     private Grid _grid;
     private PreviewSystem _previewSystem;
+    private EdgeDatabase _database;
     private GridData _floorData;
     private GridData _furnitureData;
     private GridData _ceilingData;
     private ObjectPlacer _objectPlacer;
     private GridData _selectedData;
 
-    public EdgeRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, 
-                           GridData floorData, GridData furnitureData, GridData ceilingData)
+    private EdgeRotation _currentRotation = EdgeRotation.Deg0;
+
+    // Single-edge check for removal validation (always {0} for single edge)
+    private List<int> _singleEdgeCheck = new List<int> { 0 };
+
+    public EdgeRemovalState(Grid grid, PreviewSystem previewSystem, EdgeDatabase database,
+                           ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
     {
         _grid = grid;
         _previewSystem = previewSystem;
+        _database = database;
         _objectPlacer = objectPlacer;
         _floorData = floorData;
         _furnitureData = furnitureData;
         _ceilingData = ceilingData;
 
-        // Initialize edge removal preview
-        _previewSystem.StartShowingEdgeRemovalPreview(Vector3.zero);
+        // Initialize removal preview
+        // We need a prefab for the preview - using first edge in database as default
+        GameObject previewPrefab = null;
+        if (_database.edgeData.Count > 0)
+        {
+            previewPrefab = _database.edgeData[0].prefab;
+        }
+
+        _previewSystem.StartShowingEdgeRemovalPreview(previewPrefab, Vector3.zero);
     }
 
     public void EndState()
@@ -49,125 +65,120 @@ public class EdgeRemovalState : IBuildingState
     }
 
     /// <summary>
-    /// Attempts to remove an edge at the specified grid position.
-    /// Checks all three build layers (floor, furniture, ceiling) and both
-    /// edge orientations (North and East edges of the tile).
+    /// Attempts to remove the edge at the specified grid position.
+    /// Checks all three layers (furniture, floor, ceiling) in priority order.
     /// </summary>
     public void OnAction(Vector3Int gridPosition)
     {
+        Edge targetEdge = CalculateBaseEdge(gridPosition, _currentRotation);
         _selectedData = null;
-        Edge edgeToRemove = null;
-
-        // Check both possible edge orientations at this tile position
-        Edge northEdge = new Edge(
-            new Vector3Int(gridPosition.x, 0, gridPosition.z + 1),
-            new Vector3Int(gridPosition.x + 1, 0, gridPosition.z + 1)
-        );
-
-        Edge eastEdge = new Edge(
-            new Vector3Int(gridPosition.x + 1, 0, gridPosition.z + 1),
-            new Vector3Int(gridPosition.x + 1, 0, gridPosition.z)
-        );
 
         // Check furniture layer first
-        edgeToRemove = FindEdgeInLayer(_furnitureData, northEdge, eastEdge);
-        if (edgeToRemove != null)
+        if (!_furnitureData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
         {
             _selectedData = _furnitureData;
         }
-        
-        // If not found, check floor layer
-        if (_selectedData == null)
+        // If nothing in furniture, check floor layer
+        else if (!_floorData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
         {
-            edgeToRemove = FindEdgeInLayer(_floorData, northEdge, eastEdge);
-            if (edgeToRemove != null)
-            {
-                _selectedData = _floorData;
-            }
+            _selectedData = _floorData;
         }
-
-        // If still not found, check ceiling layer
-        if (_selectedData == null)
+        // If nothing in floor, check ceiling layer
+        else if (!_ceilingData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
         {
-            edgeToRemove = FindEdgeInLayer(_ceilingData, northEdge, eastEdge);
-            if (edgeToRemove != null)
-            {
-                _selectedData = _ceilingData;
-            }
+            _selectedData = _ceilingData;
         }
 
         // If no edge found in any layer, return
-        if (_selectedData == null || edgeToRemove == null)
+        if (_selectedData == null)
             return;
-        
-        _gameObjectIndex = _selectedData.GetEdgeRepresentationIndex(edgeToRemove);
+
+        _gameObjectIndex = _selectedData.GetEdgeRepresentationIndex(targetEdge);
 
         if (_gameObjectIndex == -1)
             return;
 
-        _selectedData.RemoveEdgeAt(edgeToRemove);  
+        _selectedData.RemoveEdgeAt(targetEdge);
         _objectPlacer.RemoveEdgeAt(_gameObjectIndex);
     }
 
     public void UpdateState(Vector3Int gridPosition)
     {
+        Edge targetEdge = CalculateBaseEdge(gridPosition, _currentRotation);
+
         // Check if there's a valid edge to remove at this position
-        bool isValid = CheckIfSelectionIsValid(gridPosition);
-        
+        bool isValid = CheckIfEdgeExists(targetEdge);
+
         // Update preview with position and validity feedback
-        Vector3 worldPosition = _grid.CellToWorld(gridPosition);
+        Vector3 worldPosition = _grid.CellToWorld(targetEdge.end1);
         _previewSystem.UpdatePosition(worldPosition, isValid);
     }
 
     public void Rotate(Vector3Int gridPosition)
     {
-        // Rotation not applicable for removal
-        return;
+        // Toggle between Deg0 and Deg90 (edges only have 2 rotation states)
+        _currentRotation = (EdgeRotation)(((int)_currentRotation + 1) % 2);
+
+        // Update preview rotation
+        Vector3 worldPosition = _grid.CellToWorld(gridPosition);
+        _previewSystem.UpdateRotation(worldPosition);
+        UpdateState(gridPosition);
     }
 
     public void OnHold(Vector3Int gridPosition)
     {
-        // Multi-deletion for edges will be implemented in Phase 4
+        // Multi-deletion for edges will be implemented in Phase 3
     }
 
     #region Helper Methods
 
     /// <summary>
-    /// Searches for an edge in the specified layer.
-    /// Checks both the north edge and east edge of the tile.
-    /// Returns the first edge found, or null if neither exists.
+    /// Calculates the base edge for the given tile position and rotation.
+    /// This is identical to EdgeState's logic.
+    /// 
+    /// Rotation Mapping:
+    /// - Deg0: Edge along positive X-axis from (x, z) to (x+1, z) - 0° rotation (points East)
+    /// - Deg90: Edge along negative Z-axis from (x, z) to (x, z-1) - -90° rotation (points South)
+    /// 
+    /// The edge GameObject is positioned at end1 (the tile origin).
     /// </summary>
-    private Edge FindEdgeInLayer(GridData layer, Edge northEdge, Edge eastEdge)
+    private Edge CalculateBaseEdge(Vector3Int tilePosition, EdgeRotation rotation)
     {
-        if (layer.GetEdgeRepresentationIndex(northEdge) != -1)
-            return northEdge;
-        
-        if (layer.GetEdgeRepresentationIndex(eastEdge) != -1)
-            return eastEdge;
+        switch (rotation)
+        {
+            case EdgeRotation.Deg0:
+                // Horizontal edge along X-axis: from (x, z) to (x+1, z) - 0° rotation
+                return new Edge(
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
+                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z)
+                );
 
-        return null;
+            case EdgeRotation.Deg90:
+                // Vertical edge along negative Z-axis: from (x, z) to (x, z-1) - -90° rotation
+                return new Edge(
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z - 1)
+                );
+
+            default:
+                return new Edge(
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
+                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z)
+                );
+        }
     }
 
     /// <summary>
-    /// Checks if there's a valid edge to remove at the specified position.
-    /// Used for preview system to show valid/invalid feedback.
+    /// Checks if an edge exists at the specified position in ANY layer.
+    /// Returns true if the edge can be removed (exists in at least one layer).
     /// </summary>
-    private bool CheckIfSelectionIsValid(Vector3Int gridPosition)
+    private bool CheckIfEdgeExists(Edge targetEdge)
     {
-        Edge northEdge = new Edge(
-            new Vector3Int(gridPosition.x, 0, gridPosition.z + 1),
-            new Vector3Int(gridPosition.x + 1, 0, gridPosition.z + 1)
-        );
-
-        Edge eastEdge = new Edge(
-            new Vector3Int(gridPosition.x + 1, 0, gridPosition.z + 1),
-            new Vector3Int(gridPosition.x + 1, 0, gridPosition.z)
-        );
-
-        // Check if any edge exists in any layer
-        return FindEdgeInLayer(_furnitureData, northEdge, eastEdge) != null ||
-               FindEdgeInLayer(_floorData, northEdge, eastEdge) != null ||
-               FindEdgeInLayer(_ceilingData, northEdge, eastEdge) != null;
+        // If CanPlaceEdgeAt returns false, it means the edge is occupied (exists)
+        // We want to return true if the edge EXISTS (can be removed)
+        return !(_furnitureData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation) &&
+                 _floorData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation) &&
+                 _ceilingData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation));
     }
 
     #endregion

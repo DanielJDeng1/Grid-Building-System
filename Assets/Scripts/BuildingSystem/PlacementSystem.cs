@@ -136,6 +136,7 @@ public class PlacementSystem : MonoBehaviour
         _buildingState = new EdgeRemovalState(
             _grid, 
             _previewSystem, 
+            _edgeDatabase,  // ADDED: EdgeDatabase parameter
             _objectPlacer, 
             _floorData, 
             _furnitureData, 

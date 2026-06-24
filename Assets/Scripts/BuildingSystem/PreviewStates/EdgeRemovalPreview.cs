@@ -2,30 +2,25 @@ using UnityEngine;
 
 /// <summary>
 /// Preview state for edge-based object removal (walls, fences, railings).
-/// Displays a thin plane indicator at the edge position to show removal target.
+/// Displays a semi-transparent preview with red material to indicate deletion target.
 /// 
 /// VISUAL FEEDBACK:
-/// - Valid removal (edge exists): invalidMaterial (red) to indicate deletion
-/// - Invalid removal (no edge): No preview or transparent indicator
-/// 
-/// DESIGN RATIONALE:
-/// Uses a thin plane primitive positioned at edge locations. Unlike grid removal
-/// (which uses a cube on the tile), edge removal needs a directional indicator
-/// that aligns with the edge being removed.
-/// 
-/// EDGE POSITIONING:
-/// The plane is positioned at edge midpoints with appropriate rotation:
-/// - Horizontal edges (Deg0): Plane aligned along X-axis
-/// - Vertical edges (Deg90): Plane aligned along Z-axis
+/// - Valid removal (edge exists): invalidMaterial applied (red tint)
+/// - Invalid removal (no edge): validMaterial applied (white/transparent)
 /// 
 /// ROTATION:
-/// Removal operations don't require rotation, but the preview orientation
-/// can be updated if edge detection logic changes orientation.
+/// Edge removal previews toggle between two orientations to match placement:
+/// - Deg0: Horizontal (along positive X-axis) - 0° rotation
+/// - Deg90: Vertical (along negative Z-axis) - -90° rotation
+/// 
+/// DESIGN RATIONALE:
+/// Uses the actual edge prefab (with translucent material) to show exactly
+/// what will be removed, unlike grid removal which uses a primitive cube.
 /// 
 /// PERFORMANCE:
-/// - Single plane primitive (minimal geometry)
-/// - Material swap uses shared materials (no GC)
-/// - Destroyed when state ends
+/// - Preview instantiated once per state activation
+/// - Material swap uses shared materials (no GC allocation)
+/// - Colliders disabled to prevent unintended interactions
 /// </summary>
 public class EdgeRemovalPreview : IPreviewState
 {
@@ -34,7 +29,11 @@ public class EdgeRemovalPreview : IPreviewState
     private Material _invalidMaterial;
     private float _yOffset;
 
-    private Renderer _previewRenderer;
+    // Cache renderer references for efficient material swapping
+    private Renderer[] _previewRenderers;
+
+    // Track rotation state to toggle between 0° and -90°
+    private bool _isRotated = false;
 
     public EdgeRemovalPreview(Material validMaterial, Material invalidMaterial, float yOffset)
     {
@@ -45,8 +44,26 @@ public class EdgeRemovalPreview : IPreviewState
 
     public void StartShowingPreview(GameObject prefab, Vector3 position)
     {
-        // Removal preview doesn't use the prefab parameter (always uses primitive plane)
-        CreateRemovalIndicator(position);
+        if (prefab == null)
+        {
+            Debug.LogWarning("EdgeRemovalPreview: Cannot create preview from null prefab");
+            return;
+        }
+
+        _previewObject = Object.Instantiate(prefab);
+        _previewObject.transform.position = position + Vector3.up * _yOffset;
+
+        // Cache all renderers for efficient material operations
+        _previewRenderers = _previewObject.GetComponentsInChildren<Renderer>();
+
+        // Apply initial invalid material (red indicator for deletion)
+        ApplyMaterial(_invalidMaterial);
+
+        // Disable colliders to prevent physics interactions with preview
+        DisableColliders(_previewObject);
+
+        // Reset rotation state
+        _isRotated = false;
     }
 
     public void UpdatePosition(Vector3 position, bool isValid)
@@ -54,29 +71,30 @@ public class EdgeRemovalPreview : IPreviewState
         if (_previewObject == null)
             return;
 
-        // Update position with Y offset
+        // Update position with Y offset for visual clarity
         _previewObject.transform.position = new Vector3(
             position.x,
             position.y + _yOffset,
             position.z
         );
 
-        // Show red indicator when hovering over removable edge
-        if (_previewRenderer != null)
-        {
-            _previewRenderer.sharedMaterial = isValid ? _invalidMaterial : _validMaterial;
-        }
+        // Update material based on removal validity
+        // isValid = true means edge exists and can be removed (show red)
+        // isValid = false means no edge exists (show transparent/white)
+        ApplyMaterial(isValid ? _invalidMaterial : _validMaterial);
     }
 
     public void RotatePreview(Vector3 pivot)
     {
-        // Edge removal preview can optionally rotate to show different edge orientations
-        // Currently a no-op, but can be implemented if removal logic detects edge direction
         if (_previewObject == null)
             return;
 
-        // Rotate 90 degrees to toggle between horizontal/vertical edge indicator
-        _previewObject.transform.RotateAround(_previewObject.transform.position, Vector3.up, 90f);
+        // Toggle rotation state
+        _isRotated = !_isRotated;
+
+        // Set absolute rotation: 0° or -90°
+        float targetRotation = _isRotated ? -90f : 0f;
+        _previewObject.transform.rotation = Quaternion.Euler(0f, targetRotation, 0f);
     }
 
     public void StopShowingPreview()
@@ -85,46 +103,42 @@ public class EdgeRemovalPreview : IPreviewState
         {
             Object.Destroy(_previewObject);
             _previewObject = null;
-            _previewRenderer = null;
+            _previewRenderers = null;
         }
+
+        // Reset rotation state for next preview
+        _isRotated = false;
     }
 
     #region Helper Methods
 
     /// <summary>
-    /// Creates a thin plane primitive as the edge removal indicator.
-    /// Positioned and scaled to represent an edge boundary.
+    /// Applies material to all cached renderers.
+    /// Uses shared material to avoid creating material instances (GC allocation).
     /// </summary>
-    private void CreateRemovalIndicator(Vector3 position)
+    private void ApplyMaterial(Material material)
     {
-        _previewObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
-        _previewObject.name = "EdgeRemovalPreview";
-        
-        // Position at edge location with Y offset
-        _previewObject.transform.position = new Vector3(
-            position.x,
-            position.y + _yOffset,
-            position.z
-        );
+        if (_previewRenderers == null || material == null)
+            return;
 
-        // Scale to represent an edge (thin plane along one axis)
-        // Default plane is 10x10, scale down to match grid size
-        // Rotate 90 degrees on X-axis to make it vertical-facing
-        _previewObject.transform.localScale = new Vector3(0.1f, 1f, 0.2f);
-        _previewObject.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-
-        // Cache renderer for material swapping
-        _previewRenderer = _previewObject.GetComponent<Renderer>();
-
-        // Apply initial invalid material (red indicator for deletion)
-        if (_previewRenderer != null)
+        foreach (var renderer in _previewRenderers)
         {
-            _previewRenderer.sharedMaterial = _invalidMaterial;
+            if (renderer != null)
+            {
+                // sharedMaterial avoids instantiation, preventing GC pressure
+                renderer.sharedMaterial = material;
+            }
         }
+    }
 
-        // Disable collider to prevent raycast interference
-        Collider collider = _previewObject.GetComponent<Collider>();
-        if (collider != null)
+    /// <summary>
+    /// Disables all colliders on the preview GameObject and its children.
+    /// Prevents the preview from interfering with raycasts or physics.
+    /// </summary>
+    private void DisableColliders(GameObject obj)
+    {
+        Collider[] colliders = obj.GetComponentsInChildren<Collider>();
+        foreach (var collider in colliders)
         {
             collider.enabled = false;
         }

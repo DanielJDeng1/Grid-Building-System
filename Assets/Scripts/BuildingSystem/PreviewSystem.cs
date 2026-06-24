@@ -84,13 +84,14 @@ public class PreviewSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Activates edge object removal preview (red indicator plane).
+    /// Activates edge object removal preview.
+    /// Uses the provided prefab with red material to indicate deletion target.
     /// </summary>
-    public void StartShowingEdgeRemovalPreview(Vector3 position)
+    public void StartShowingEdgeRemovalPreview(GameObject prefab, Vector3 position)
     {
         StopShowingPreview();
         _currentState = _edgeRemovalPreview;
-        _currentState.StartShowingPreview(null, position);
+        _currentState.StartShowingPreview(prefab, position);
     }
 
     #endregion

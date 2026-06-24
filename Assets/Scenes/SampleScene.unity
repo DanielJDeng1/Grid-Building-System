@@ -1406,87 +1406,6 @@ MonoBehaviour:
   _gridVisualization: {fileID: 429430681}
   _objectPlacer: {fileID: 166735500}
   _previewSystem: {fileID: 967919790}
---- !u!1001 &608227299
-PrefabInstance:
-  m_ObjectHideFlags: 0
-  serializedVersion: 2
-  m_Modification:
-    serializedVersion: 3
-    m_TransformParent: {fileID: 0}
-    m_Modifications:
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalRotation.w
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalRotation.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalRotation.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalRotation.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 294251471359365947, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 605731429924634038, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0.5
-      objectReference: {fileID: 0}
-    - target: {fileID: 1091495076126864961, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_Name
-      value: Wall
-      objectReference: {fileID: 0}
-    - target: {fileID: 2026329522174301449, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0.5
-      objectReference: {fileID: 0}
-    - target: {fileID: 5906179570362556875, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0.5
-      objectReference: {fileID: 0}
-    - target: {fileID: 6506786258777482855, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0.5
-      objectReference: {fileID: 0}
-    - target: {fileID: 6935179685635172633, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0.5
-      objectReference: {fileID: 0}
-    - target: {fileID: 7693963961373391997, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0.5
-      objectReference: {fileID: 0}
-    m_RemovedComponents: []
-    m_RemovedGameObjects: []
-    m_AddedGameObjects: []
-    m_AddedComponents: []
-  m_SourcePrefab: {fileID: 100100000, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
 --- !u!1 &619994496
 GameObject:
   m_ObjectHideFlags: 0
@@ -3458,7 +3377,7 @@ MonoBehaviour:
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
+          m_IntArgument: 2
           m_FloatArgument: 0
           m_StringArgument: 
           m_BoolArgument: 0
@@ -4429,7 +4348,7 @@ Grid:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2073405667}
   m_Enabled: 1
-  m_CellSize: {x: 1, y: 1, z: 1}
+  m_CellSize: {x: 1, y: 4, z: 1}
   m_CellGap: {x: 0, y: 0, z: 0}
   m_CellLayout: 0
   m_CellSwizzle: 0
@@ -4445,4 +4364,3 @@ SceneRoots:
   - {fileID: 1913723257}
   - {fileID: 619994497}
   - {fileID: 868352803}
-  - {fileID: 608227299}

@@ -60,8 +60,45 @@ public class ObjectPlacer : MonoBehaviour
         return AddToPlacementList(newObject);
     }
 
+    #endregion
+
+    #region Edge Object Placement
+
     /// <summary>
-    /// Removes a grid object at the specified index and returns the index to the free list.
+    /// Places an edge object (wall, fence, railing) at the specified position with rotation.
+    /// 
+    /// EDGE ROTATION BEHAVIOR (CORRECTED):
+    /// - Deg0: 0° rotation (horizontal alignment along positive X-axis)
+    /// - Deg90: -90° rotation (vertical alignment along negative Z-axis)
+    /// 
+    /// Edge GameObjects are positioned at the grid integer coordinate (the pivot).
+    /// Rotation is applied to the PARENT GameObject's transform, not individual children.
+    /// </summary>
+    /// <param name="prefab">Edge GameObject prefab to instantiate</param>
+    /// <param name="position">World position of the edge (grid integer coordinate)</param>
+    /// <param name="rotation">Edge rotation determining orientation</param>
+    /// <returns>Index in the placement list for later removal reference</returns>
+    public int PlaceEdge(GameObject prefab, Vector3 position, EdgeRotation rotation)
+    {
+        GameObject newObject = Instantiate(prefab);
+        newObject.transform.position = position;
+
+        // Apply rotation to parent GameObject transform
+        // Deg0: 0° (horizontal - along positive X-axis)
+        // Deg90: -90° (vertical - along negative Z-axis)
+        float rotationAngle = rotation == EdgeRotation.Deg0 ? 0f : -90f;
+        newObject.transform.Rotate(Vector3.up, rotationAngle);
+
+        return AddToPlacementList(newObject);
+    }
+
+    #endregion
+
+    #region Object Removal
+
+    /// <summary>
+    /// Removes an object at the specified index and returns the index to the free list.
+    /// Works for both grid objects and edge objects.
     /// </summary>
     public void RemoveObjectAt(int gameObjectIndex)
     {
@@ -73,54 +110,13 @@ public class ObjectPlacer : MonoBehaviour
         _freeIndices.Push(gameObjectIndex);
     }
 
-    #endregion
-
-    #region Edge Object Placement
-
-    /// <summary>
-    /// Places an edge object (wall, fence, railing) at the specified position with rotation.
-    /// 
-    /// EDGE ROTATION BEHAVIOR:
-    /// - Deg0: Horizontal alignment (along X-axis / East-West)
-    /// - Deg90: Vertical alignment (along Z-axis / North-South)
-    /// 
-    /// Edge objects are positioned at the world coordinate, and each child is rotated
-    /// around its own position. This allows prefabs with offset children to maintain
-    /// their intended visual structure.
-    /// </summary>
-    /// <param name="prefab">Edge GameObject prefab to instantiate</param>
-    /// <param name="position">World position of the edge</param>
-    /// <param name="rotation">Edge rotation determining orientation</param>
-    /// <returns>Index in the placement list for later removal reference</returns>
-    public int PlaceEdge(GameObject prefab, Vector3 position, EdgeRotation rotation)
-    {
-        GameObject newObject = Instantiate(prefab);
-        newObject.transform.position = position;
-
-        // Rotate each child around its own position to preserve prefab's internal structure
-        // This is different from grid objects because edge prefabs may have specific
-        // offset configurations that should be maintained
-        float rotationAngle = rotation == EdgeRotation.Deg0 ? 0f : 90f;
-        
-        foreach (Transform child in newObject.transform)
-        {
-            child.transform.RotateAround(child.transform.position, Vector3.up, rotationAngle);
-        }
-
-        return AddToPlacementList(newObject);
-    }
-
     /// <summary>
     /// Removes an edge object at the specified index and returns the index to the free list.
+    /// Functionally identical to RemoveObjectAt - kept for API clarity.
     /// </summary>
     public void RemoveEdgeAt(int gameObjectIndex)
     {
-        if (!IsValidIndex(gameObjectIndex))
-            return;
-
-        Destroy(_placedGameObjects[gameObjectIndex]);
-        _placedGameObjects[gameObjectIndex] = null;
-        _freeIndices.Push(gameObjectIndex);
+        RemoveObjectAt(gameObjectIndex);
     }
 
     #endregion

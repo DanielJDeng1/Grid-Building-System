@@ -13,13 +13,18 @@ MonoBehaviour:
   m_Name: EdgeDatabase
   m_EditorClassIdentifier: Assembly-CSharp::EdgeDatabase
   edgeData:
-  - name: Wall
+  - name: EdgeRemovalPrefab
     positionsFilled: 00000000
-    prefab: {fileID: 1091495076126864961, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
+    prefab: {fileID: 5239260526966538606, guid: 9c387681784ef464cb1c99a3764e840a, type: 3}
     ID: 0
     buildType: 0
   - name: Wall
-    positionsFilled: 0000000001000000
-    prefab: {fileID: 4793896007788827952, guid: 045cfb1c176ceaf4894b034b756184c0, type: 3}
+    positionsFilled: 00000000
+    prefab: {fileID: 1091495076126864961, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
     ID: 1
+    buildType: 0
+  - name: Wall
+    positionsFilled: ffffffff00000000
+    prefab: {fileID: 4793896007788827952, guid: 045cfb1c176ceaf4894b034b756184c0, type: 3}
+    ID: 2
     buildType: 0

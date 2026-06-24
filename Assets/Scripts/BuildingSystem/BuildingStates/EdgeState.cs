@@ -5,14 +5,17 @@ using System.Collections.Generic;
 /// Building state for placing edge objects (walls, fences, railings).
 /// Supports single-click placement and rotation of edge structures.
 /// 
-/// EDGE PLACEMENT LOGIC:
+/// EDGE PLACEMENT LOGIC (CORRECTED):
 /// When the player hovers over tile (x, z):
-/// - Rotation Deg0: Places edge on North side from (x, z+1) to (x+1, z+1)
-/// - Rotation Deg90: Places edge on East side from (x+1, z+1) to (x+1, z)
+/// - Rotation Deg0: Places edge from (x, z) to (x+1, z) along positive X-axis - Rotated 0° (points East)
+/// - Rotation Deg90: Places edge from (x, z) to (x, z-1) along negative Z-axis - Rotated 90° (points South)
+/// 
+/// Edge GameObject is positioned at the grid integer coordinate (the pivot).
+/// Rotation is applied to the parent GameObject's transform.
 /// 
 /// Multi-edge structures (e.g., 2-tile walls) extend from this base edge:
-/// - Deg0: Extends along X-axis (horizontally)
-/// - Deg90: Extends along Z-axis (vertically)
+/// - Deg0: Extends along positive X-axis (horizontally)
+/// - Deg90: Extends along negative Z-axis (vertically)
 /// 
 /// PREVIEW INTEGRATION:
 /// - Activates EdgePreview state on construction
@@ -79,9 +82,8 @@ public class EdgeState : IBuildingState
         if (!placementValidity)
             return;
 
-        // Calculate world position for the edge
-        // For visual consistency, place at the midpoint of the first edge segment
-        Vector3 worldPosition = CalculateEdgeWorldPosition(baseEdge);
+        // Position GameObject at grid integer coordinate (the pivot)
+        Vector3 worldPosition = _grid.CellToWorld(baseEdge.end1);
         
         int index = _objectPlacer.PlaceEdge(edgeData.prefab, worldPosition, _currentRotation);
 
@@ -97,7 +99,7 @@ public class EdgeState : IBuildingState
         bool isValid = CheckPlacementValidity(baseEdge, edgeData.positionsFilled);
         
         // Update preview with position and validity feedback
-        Vector3 worldPosition = CalculateEdgeWorldPosition(baseEdge);
+        Vector3 worldPosition = _grid.CellToWorld(baseEdge.end1);
         _previewSystem.UpdatePosition(worldPosition, isValid);
     }
 
@@ -114,7 +116,7 @@ public class EdgeState : IBuildingState
 
     public void OnHold(Vector3Int gridPosition)
     {
-        // Multi-placement for edges will be implemented in Phase 4
+        // Multi-placement for edges will be implemented in Phase 3
     }
 
     #region Helper Methods
@@ -123,47 +125,36 @@ public class EdgeState : IBuildingState
     /// Calculates the base edge for the given tile position and rotation.
     /// This edge represents the starting point for multi-edge structures.
     /// 
-    /// Rotation Mapping:
-    /// - Deg0: North edge of the tile (horizontal, along X-axis)
-    /// - Deg90: East edge of the tile (vertical, along Z-axis)
+    /// CORRECTED Rotation Mapping:
+    /// - Deg0: Edge along positive X-axis from (x, z) to (x+1, z) - 0° rotation (points East)
+    /// - Deg90: Edge along negative Z-axis from (x, z) to (x, z-1) - 90° rotation (points South)
+    /// 
+    /// The edge GameObject is positioned at end1 (the tile origin).
     /// </summary>
     private Edge CalculateBaseEdge(Vector3Int tilePosition, EdgeRotation rotation)
     {
         switch (rotation)
         {
             case EdgeRotation.Deg0:
-                // North edge: from (x, z+1) to (x+1, z+1)
+                // Horizontal edge along X-axis: from (x, z) to (x+1, z) - 0° rotation
                 return new Edge(
-                    new Vector3Int(tilePosition.x, 0, tilePosition.z + 1),
-                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z + 1)
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
+                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z)
                 );
 
             case EdgeRotation.Deg90:
-                // East edge: from (x+1, z+1) to (x+1, z)
+                // Vertical edge along negative Z-axis: from (x, z) to (x, z-1) - 90° rotation
                 return new Edge(
-                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z + 1),
-                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z)
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z - 1)
                 );
 
             default:
                 return new Edge(
-                    new Vector3Int(tilePosition.x, 0, tilePosition.z + 1),
-                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z + 1)
+                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
+                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z)
                 );
         }
-    }
-
-    /// <summary>
-    /// Calculates the world position for edge GameObject placement.
-    /// Returns the midpoint of the edge for centered alignment.
-    /// </summary>
-    private Vector3 CalculateEdgeWorldPosition(Edge edge)
-    {
-        Vector3 end1World = _grid.CellToWorld(edge.end1);
-        Vector3 end2World = _grid.CellToWorld(edge.end2);
-
-        // Return midpoint of the edge
-        return (end1World + end2World) * 0.5f;
     }
 
     private bool CheckPlacementValidity(Edge baseEdge, List<int> positionsFilled)
@@ -188,6 +179,6 @@ public class EdgeState : IBuildingState
 
 public enum EdgeRotation
 {
-    Deg0,   // Horizontal alignment (X-axis / East-West)
-    Deg90   // Vertical alignment (Z-axis / North-South)
+    Deg0,   // Horizontal alignment (X-axis / positive X direction) - 0° rotation
+    Deg90   // Vertical alignment (Z-axis / negative Z direction) - 90° rotation
 }
