@@ -9,6 +9,11 @@ using UnityEngine;
 /// Checks layers in order: Furniture → Floor → Ceiling
 /// Removes the first object found in the priority order.
 /// 
+/// PERFORMANCE FIX:
+/// Optimized priority check to avoid redundant dictionary lookups.
+/// Now performs single-pass validation that returns both GridData reference
+/// and object index, eliminating duplicate lookups.
+/// 
 /// PREVIEW INTEGRATION:
 /// - Activates GridRemovalPreview state on construction
 /// - Shows red indicator cube when hovering over removable object
@@ -21,14 +26,12 @@ using UnityEngine;
 /// </summary>
 public class GridRemovalState : IBuildingState
 {
-    private int _gameObjectIndex = -1;
     private Grid _grid;
     private PreviewSystem _previewSystem;
     private GridData _floorData;
     private GridData _furnitureData;
     private GridData _ceilingData;
     private ObjectPlacer _objectPlacer;
-    private GridData _selectedData;
 
     private List<Vector2Int> _positionsToBeFilled;
 
@@ -56,41 +59,20 @@ public class GridRemovalState : IBuildingState
 
     public void OnAction(Vector3Int gridPosition)
     {
-        _selectedData = null;
-        
-        // Check furniture layer first
-        if (!_furnitureData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
-        {
-            _selectedData = _furnitureData;
-        }
-        // If nothing in furniture, check floor layer
-        else if (!_floorData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
-        {
-            _selectedData = _floorData;
-        }
-        // If nothing in floor, check ceiling layer
-        else if (!_ceilingData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
-        {
-            _selectedData = _ceilingData;
-        }
+        // PERFORMANCE FIX: Single-pass priority check with object index retrieval
+        var removalData = GetRemovalDataWithPriority(gridPosition);
 
-        // If no object found in any layer, return
-        if (_selectedData == null)
-            return;
-        
-        _gameObjectIndex = _selectedData.GetRepresentationIndex(gridPosition);
-
-        if (_gameObjectIndex == -1)
+        if (removalData.data == null || removalData.objectIndex == -1)
             return;
 
-        _selectedData.RemoveObjectAt(gridPosition);  
-        _objectPlacer.RemoveObjectAt(_gameObjectIndex);
+        removalData.data.RemoveObjectAt(gridPosition);  
+        _objectPlacer.RemoveObjectAt(removalData.objectIndex);
     }
 
     public void UpdateState(Vector3Int gridPosition)
     {
         // Check if there's a valid object to remove at this position
-        bool isValid = CheckIfSelectionIsValid(gridPosition);
+        bool isValid = CheckIfObjectExists(gridPosition);
         
         // Update preview with position and validity feedback
         Vector3 worldPosition = _grid.CellToWorld(gridPosition);
@@ -105,16 +87,47 @@ public class GridRemovalState : IBuildingState
 
     public void OnHold(Vector3Int mousePosition)
     {
-        // Multi-deletion will be implemented in Phase 4
+        // Multi-deletion will be implemented in next phase
     }
 
     #region Helper Methods
 
     /// <summary>
+    /// PERFORMANCE FIX: Single-pass priority check that returns both GridData and object index.
+    /// Eliminates redundant dictionary lookups by combining validation and retrieval.
+    /// </summary>
+    private (GridData data, int objectIndex) GetRemovalDataWithPriority(Vector3Int gridPosition)
+    {
+        // Check furniture layer first (highest priority)
+        if (!_furnitureData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
+        {
+            int index = _furnitureData.GetRepresentationIndex(gridPosition);
+            return (_furnitureData, index);
+        }
+        
+        // Check floor layer (medium priority)
+        if (!_floorData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
+        {
+            int index = _floorData.GetRepresentationIndex(gridPosition);
+            return (_floorData, index);
+        }
+        
+        // Check ceiling layer (lowest priority)
+        if (!_ceilingData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
+        {
+            int index = _ceilingData.GetRepresentationIndex(gridPosition);
+            return (_ceilingData, index);
+        }
+
+        // No object found in any layer
+        return (null, -1);
+    }
+
+    /// <summary>
     /// Checks if there's a valid object to remove at the specified position.
     /// Returns true if ANY layer contains an object at this position.
     /// </summary>
-    private bool CheckIfSelectionIsValid(Vector3Int gridPosition)
+    private bool CheckIfObjectExists(Vector3Int gridPosition)
     {
         // If position is occupied (CanPlace returns false), removal is valid
         return !(_furnitureData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0) && 

@@ -1119,6 +1119,24 @@ namespace InputSystem
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""UpLevel"",
+                    ""type"": ""Button"",
+                    ""id"": ""4b888643-5e0d-4dd3-b0ea-657b3353676f"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""DownLevel"",
+                    ""type"": ""Button"",
+                    ""id"": ""b9ab0fea-917e-4e49-881f-5d07026fee41"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
                 }
             ],
             ""bindings"": [
@@ -1330,6 +1348,28 @@ namespace InputSystem
                     ""action"": ""Sprint"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""ebfc0cf7-1a4b-488e-9b3a-ecdae72ebb82"",
+                    ""path"": ""<Keyboard>/period"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""UpLevel"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""61244ee0-02ce-44a8-aa8d-4695d034403e"",
+                    ""path"": ""<Keyboard>/comma"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""DownLevel"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
                 }
             ]
         }
@@ -1426,6 +1466,8 @@ namespace InputSystem
             m_Camera_Pitch = m_Camera.FindAction("Pitch", throwIfNotFound: true);
             m_Camera_Move = m_Camera.FindAction("Move", throwIfNotFound: true);
             m_Camera_Sprint = m_Camera.FindAction("Sprint", throwIfNotFound: true);
+            m_Camera_UpLevel = m_Camera.FindAction("UpLevel", throwIfNotFound: true);
+            m_Camera_DownLevel = m_Camera.FindAction("DownLevel", throwIfNotFound: true);
         }
 
         ~@Controls()
@@ -1891,6 +1933,8 @@ namespace InputSystem
         private readonly InputAction m_Camera_Pitch;
         private readonly InputAction m_Camera_Move;
         private readonly InputAction m_Camera_Sprint;
+        private readonly InputAction m_Camera_UpLevel;
+        private readonly InputAction m_Camera_DownLevel;
         /// <summary>
         /// Provides access to input actions defined in input action map "Camera".
         /// </summary>
@@ -1918,6 +1962,14 @@ namespace InputSystem
             /// Provides access to the underlying input action "Camera/Sprint".
             /// </summary>
             public InputAction @Sprint => m_Wrapper.m_Camera_Sprint;
+            /// <summary>
+            /// Provides access to the underlying input action "Camera/UpLevel".
+            /// </summary>
+            public InputAction @UpLevel => m_Wrapper.m_Camera_UpLevel;
+            /// <summary>
+            /// Provides access to the underlying input action "Camera/DownLevel".
+            /// </summary>
+            public InputAction @DownLevel => m_Wrapper.m_Camera_DownLevel;
             /// <summary>
             /// Provides access to the underlying input action map instance.
             /// </summary>
@@ -1956,6 +2008,12 @@ namespace InputSystem
                 @Sprint.started += instance.OnSprint;
                 @Sprint.performed += instance.OnSprint;
                 @Sprint.canceled += instance.OnSprint;
+                @UpLevel.started += instance.OnUpLevel;
+                @UpLevel.performed += instance.OnUpLevel;
+                @UpLevel.canceled += instance.OnUpLevel;
+                @DownLevel.started += instance.OnDownLevel;
+                @DownLevel.performed += instance.OnDownLevel;
+                @DownLevel.canceled += instance.OnDownLevel;
             }
 
             /// <summary>
@@ -1979,6 +2037,12 @@ namespace InputSystem
                 @Sprint.started -= instance.OnSprint;
                 @Sprint.performed -= instance.OnSprint;
                 @Sprint.canceled -= instance.OnSprint;
+                @UpLevel.started -= instance.OnUpLevel;
+                @UpLevel.performed -= instance.OnUpLevel;
+                @UpLevel.canceled -= instance.OnUpLevel;
+                @DownLevel.started -= instance.OnDownLevel;
+                @DownLevel.performed -= instance.OnDownLevel;
+                @DownLevel.canceled -= instance.OnDownLevel;
             }
 
             /// <summary>
@@ -2261,6 +2325,20 @@ namespace InputSystem
             /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
             /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
             void OnSprint(InputAction.CallbackContext context);
+            /// <summary>
+            /// Method invoked when associated input action "UpLevel" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+            /// </summary>
+            /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+            /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+            /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+            void OnUpLevel(InputAction.CallbackContext context);
+            /// <summary>
+            /// Method invoked when associated input action "DownLevel" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+            /// </summary>
+            /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+            /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+            /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+            void OnDownLevel(InputAction.CallbackContext context);
         }
     }
 }

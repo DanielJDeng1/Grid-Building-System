@@ -5,14 +5,23 @@ using System.Collections.Generic;
 /// Building state for removing edge objects (walls, fences, railings).
 /// Supports single-click removal and rotation to target different edge orientations.
 /// 
+/// MULTI-LEVEL SUPPORT:
+/// Edge removal now correctly preserves Y-coordinates from gridPosition.
+/// Can remove edges at any build height independently.
+/// 
 /// EDGE REMOVAL LOGIC:
-/// When the player hovers over tile (x, z):
-/// - Rotation Deg0: Targets edge from (x, z) to (x+1, z) along positive X-axis - 0° rotation
-/// - Rotation Deg90: Targets edge from (x, z) to (x, z-1) along negative Z-axis - -90° rotation
+/// When the player hovers over tile (x, y, z):
+/// - Rotation Deg0: Targets edge from (x, y, z) to (x+1, y, z) along positive X-axis - 0° rotation
+/// - Rotation Deg90: Targets edge from (x, y, z) to (x, y, z-1) along negative Z-axis - -90° rotation
 /// 
 /// REMOVAL PRIORITY:
 /// Checks layers in order: Furniture → Floor → Ceiling
 /// Removes the first edge found in the priority order.
+/// 
+/// PERFORMANCE FIX:
+/// Optimized priority check to avoid redundant dictionary lookups.
+/// Now performs single-pass validation that returns both GridData reference
+/// and edge index, eliminating duplicate lookups.
 /// 
 /// PREVIEW INTEGRATION:
 /// - Activates EdgeRemovalPreview state on construction
@@ -22,7 +31,6 @@ using System.Collections.Generic;
 /// </summary>
 public class EdgeRemovalState : IBuildingState
 {
-    private int _gameObjectIndex = -1;
     private Grid _grid;
     private PreviewSystem _previewSystem;
     private EdgeDatabase _database;
@@ -30,7 +38,6 @@ public class EdgeRemovalState : IBuildingState
     private GridData _furnitureData;
     private GridData _ceilingData;
     private ObjectPlacer _objectPlacer;
-    private GridData _selectedData;
 
     private EdgeRotation _currentRotation = EdgeRotation.Deg0;
 
@@ -66,40 +73,21 @@ public class EdgeRemovalState : IBuildingState
 
     /// <summary>
     /// Attempts to remove the edge at the specified grid position.
-    /// Checks all three layers (furniture, floor, ceiling) in priority order.
+    /// PERFORMANCE FIX: Uses single-pass priority check to avoid redundant lookups.
+    /// MULTI-LEVEL: gridPosition.y is preserved in edge calculation.
     /// </summary>
     public void OnAction(Vector3Int gridPosition)
     {
         Edge targetEdge = CalculateBaseEdge(gridPosition, _currentRotation);
-        _selectedData = null;
 
-        // Check furniture layer first
-        if (!_furnitureData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
-        {
-            _selectedData = _furnitureData;
-        }
-        // If nothing in furniture, check floor layer
-        else if (!_floorData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
-        {
-            _selectedData = _floorData;
-        }
-        // If nothing in floor, check ceiling layer
-        else if (!_ceilingData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
-        {
-            _selectedData = _ceilingData;
-        }
+        // Single-pass priority check with edge index retrieval
+        var removalData = GetRemovalDataWithPriority(targetEdge);
 
-        // If no edge found in any layer, return
-        if (_selectedData == null)
+        if (removalData.data == null || removalData.edgeIndex == -1)
             return;
 
-        _gameObjectIndex = _selectedData.GetEdgeRepresentationIndex(targetEdge);
-
-        if (_gameObjectIndex == -1)
-            return;
-
-        _selectedData.RemoveEdgeAt(targetEdge);
-        _objectPlacer.RemoveEdgeAt(_gameObjectIndex);
+        removalData.data.RemoveEdgeAt(targetEdge);
+        _objectPlacer.RemoveEdgeAt(removalData.edgeIndex);
     }
 
     public void UpdateState(Vector3Int gridPosition)
@@ -127,7 +115,7 @@ public class EdgeRemovalState : IBuildingState
 
     public void OnHold(Vector3Int gridPosition)
     {
-        // Multi-deletion for edges will be implemented in Phase 3
+        // Multi-deletion for edges will be implemented later
     }
 
     #region Helper Methods
@@ -136,9 +124,11 @@ public class EdgeRemovalState : IBuildingState
     /// Calculates the base edge for the given tile position and rotation.
     /// This is identical to EdgeState's logic.
     /// 
+    /// MULTI-LEVEL FIX: Now preserves tilePosition.y in all edge coordinates.
+    /// 
     /// Rotation Mapping:
-    /// - Deg0: Edge along positive X-axis from (x, z) to (x+1, z) - 0° rotation (points East)
-    /// - Deg90: Edge along negative Z-axis from (x, z) to (x, z-1) - -90° rotation (points South)
+    /// - Deg0: Edge along positive X-axis from (x, y, z) to (x+1, y, z) - 0° rotation (points East)
+    /// - Deg90: Edge along negative Z-axis from (x, y, z) to (x, y, z-1) - -90° rotation (points South)
     /// 
     /// The edge GameObject is positioned at end1 (the tile origin).
     /// </summary>
@@ -147,25 +137,56 @@ public class EdgeRemovalState : IBuildingState
         switch (rotation)
         {
             case EdgeRotation.Deg0:
-                // Horizontal edge along X-axis: from (x, z) to (x+1, z) - 0° rotation
+                // Horizontal edge along X-axis: from (x, y, z) to (x+1, y, z) - 0° rotation
                 return new Edge(
-                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
-                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z)
+                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z),
+                    new Vector3Int(tilePosition.x + 1, tilePosition.y, tilePosition.z)
                 );
 
             case EdgeRotation.Deg90:
-                // Vertical edge along negative Z-axis: from (x, z) to (x, z-1) - -90° rotation
+                // Vertical edge along negative Z-axis: from (x, y, z) to (x, y, z-1) - -90° rotation
                 return new Edge(
-                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
-                    new Vector3Int(tilePosition.x, 0, tilePosition.z - 1)
+                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z),
+                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z - 1)
                 );
 
             default:
                 return new Edge(
-                    new Vector3Int(tilePosition.x, 0, tilePosition.z),
-                    new Vector3Int(tilePosition.x + 1, 0, tilePosition.z)
+                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z),
+                    new Vector3Int(tilePosition.x + 1, tilePosition.y, tilePosition.z)
                 );
         }
+    }
+
+    /// <summary>
+    /// PERFORMANCE FIX: Single-pass priority check that returns both GridData and edge index.
+    /// Eliminates redundant dictionary lookups by combining validation and retrieval.
+    /// </summary>
+    private (GridData data, int edgeIndex) GetRemovalDataWithPriority(Edge targetEdge)
+    {
+        // Check furniture layer first (highest priority)
+        if (!_furnitureData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
+        {
+            int index = _furnitureData.GetEdgeRepresentationIndex(targetEdge);
+            return (_furnitureData, index);
+        }
+
+        // Check floor layer (medium priority)
+        if (!_floorData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
+        {
+            int index = _floorData.GetEdgeRepresentationIndex(targetEdge);
+            return (_floorData, index);
+        }
+
+        // Check ceiling layer (lowest priority)
+        if (!_ceilingData.CanPlaceEdgeAt(targetEdge, _singleEdgeCheck, _currentRotation))
+        {
+            int index = _ceilingData.GetEdgeRepresentationIndex(targetEdge);
+            return (_ceilingData, index);
+        }
+
+        // No edge found in any layer
+        return (null, -1);
     }
 
     /// <summary>

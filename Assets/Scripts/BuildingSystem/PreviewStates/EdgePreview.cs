@@ -8,13 +8,13 @@ using UnityEngine;
 /// - Valid placement: validMaterial applied (white/green tint)
 /// - Invalid placement: invalidMaterial applied (red tint)
 /// 
-/// ROTATION (CORRECTED):
-/// Edge objects toggle between two orientations:
-/// - Deg0: Horizontal (along positive X-axis) - 0° rotation
-/// - Deg90: Vertical (along negative Z-axis) - -90° rotation
+/// ROTATION (FIXED):
+/// Edge objects use absolute rotation to match ObjectPlacer behavior:
+/// - Deg0: 0° rotation (horizontal alignment along positive X-axis)
+/// - Deg90: -90° rotation (vertical alignment along negative Z-axis)
 /// 
-/// Rotation is applied to the PARENT GameObject's transform.
-/// Edge prefabs are pivoted at grid integer positions.
+/// Previous implementation used incremental rotation (+90° per call) which caused
+/// desynchronization between preview and placed object rotation.
 /// 
 /// PERFORMANCE:
 /// - Preview instantiated once per state activation
@@ -31,8 +31,8 @@ public class EdgePreview : IPreviewState
     // Cache renderer references for efficient material swapping
     private Renderer[] _previewRenderers;
 
-    // Track rotation state to toggle between 0° and -90°
-    private bool _isRotated = false;
+    // ROTATION FIX: Track rotation state to match ObjectPlacer's absolute rotation
+    private EdgeRotation _currentRotation = EdgeRotation.Deg0;
 
     public EdgePreview(Material validMaterial, Material invalidMaterial, float yOffset)
     {
@@ -62,7 +62,7 @@ public class EdgePreview : IPreviewState
         DisableColliders(_previewObject);
 
         // Reset rotation state
-        _isRotated = false;
+        _currentRotation = EdgeRotation.Deg0;
     }
 
     public void UpdatePosition(Vector3 position, bool isValid)
@@ -86,11 +86,13 @@ public class EdgePreview : IPreviewState
         if (_previewObject == null)
             return;
 
-        // Toggle rotation state
-        _isRotated = !_isRotated;
+        // ROTATION FIX: Toggle rotation state
+        _currentRotation = (EdgeRotation)(((int)_currentRotation + 1) % 2);
 
-        // Set absolute rotation: 0° or -90°
-        float targetRotation = _isRotated ? -90f : 0f;
+        // Apply absolute rotation to match ObjectPlacer.PlaceEdge() behavior
+        // Deg0: 0° (horizontal - along positive X-axis)
+        // Deg90: -90° (vertical - along negative Z-axis)
+        float targetRotation = _currentRotation == EdgeRotation.Deg0 ? 0f : -90f;
         _previewObject.transform.rotation = Quaternion.Euler(0f, targetRotation, 0f);
     }
 
@@ -103,8 +105,8 @@ public class EdgePreview : IPreviewState
             _previewRenderers = null;
         }
 
-        // Reset rotation state for next preview
-        _isRotated = false;
+        // Reset rotation state
+        _currentRotation = EdgeRotation.Deg0;
     }
 
     #region Helper Methods

@@ -15,6 +15,10 @@ public class InputManager : MonoBehaviour
     public event Action OnExit;
     public event Action OnPressR;
 
+    public event Action OnPageUp;
+
+    public event Action OnPageDown;
+
     void Update()
     {
         if (!IsPointerOverUI())
@@ -38,6 +42,12 @@ public class InputManager : MonoBehaviour
                 
                 if (keyboard.rKey.wasPressedThisFrame)
                     OnPressR?.Invoke();
+
+                if (keyboard.periodKey.wasPressedThisFrame)
+                    OnPageUp?.Invoke();
+
+                if (keyboard.commaKey.wasPressedThisFrame)
+                    OnPageDown?.Invoke();
             }
         }
     }
