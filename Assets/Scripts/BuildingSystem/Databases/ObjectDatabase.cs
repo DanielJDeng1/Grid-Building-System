@@ -16,7 +16,7 @@ public class ObjectData
 {
     [field: SerializeField] public string name;
 
-    [field: SerializeField] public List<Vector2Int> positionsFilled = new List<Vector2Int>{Vector2Int.one};
+    [field: SerializeField] public List<Vector2Int> positionsFilled = new List<Vector2Int>{Vector2Int.zero};
 
     [field: SerializeField] public GameObject prefab;
 

@@ -14,7 +14,7 @@ public class EdgeData
 {
     [field: SerializeField] public string name;
 
-    [field: SerializeField] public List<int> positionsFilled = new List<int>{1};
+    [field: SerializeField] public List<int> positionsFilled = new List<int>{0};
 
     [field: SerializeField] public GameObject prefab;
 

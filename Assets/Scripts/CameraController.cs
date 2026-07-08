@@ -2,6 +2,18 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Cinemachine;
 
+/// <summary>
+/// CAMERA + BUILD HEIGHT INTEGRATION:
+/// Subscribes to PlacementSystem.OnBuildHeightChanged and moves the rig's
+/// vertical position toward the new floor's WORLD-SPACE height whenever the
+/// player changes build height (Page Up/Down), using Mathf.SmoothDamp for a
+/// simple, predictable ease rather than hand-rolled decay math.
+/// 
+/// INSPECTOR SETUP (REQUIRED for height-follow):
+/// Assign a PlacementSystem reference in _placementSystem. If left
+/// unassigned, this logs a warning on enable and the camera simply never
+/// changes height - it does not silently half-work.
+/// </summary>
 public class BuilderCameraController : MonoBehaviour
 {
     [Header("Movement")]
@@ -26,6 +38,12 @@ public class BuilderCameraController : MonoBehaviour
     [SerializeField] private float minCameraDepth = 5f;   
     [SerializeField] private float maxCameraDepth = 40f;  
 
+    [Header("Multi-Level Build Height Follow")]
+    [Tooltip("REQUIRED for the camera to follow build height changes. Leaving this empty logs a warning and disables height-follow entirely.")]
+    [SerializeField] private PlacementSystem _placementSystem;
+    [Tooltip("Seconds for the rig to reach the new floor height (Mathf.SmoothDamp convention - lower is snappier).")]
+    [SerializeField] private float heightFollowSmoothTime = 0.35f;
+
     private InputSystem.Controls inputActions;
     private CinemachineCamera vCam;
     private Vector2 moveInput;
@@ -38,6 +56,11 @@ public class BuilderCameraController : MonoBehaviour
     private float currentYaw;
     private float currentZoomProfile;
 
+    // MULTI-LEVEL: target world-space Y the rig eases toward, and the
+    // velocity reference SmoothDamp needs to track between frames.
+    private float _targetHeight;
+    private float _heightVelocity;
+
     private void Awake()
     {
         inputActions = new InputSystem.Controls();
@@ -46,8 +69,28 @@ public class BuilderCameraController : MonoBehaviour
         inputActions.Camera.Pitch.performed += ctx => OnScrollInput(ctx.ReadValue<float>());
     }
 
-    private void OnEnable() => inputActions.Camera.Enable();
-    private void OnDisable() => inputActions.Camera.Disable();
+    private void OnEnable()
+    {
+        inputActions.Camera.Enable();
+
+        if (_placementSystem != null)
+        {
+            _placementSystem.OnBuildHeightChanged += HandleBuildHeightChanged;
+        }
+        else
+        {
+            Debug.LogWarning("BuilderCameraController: _placementSystem is not assigned - " +
+                              "the camera will NOT follow build height changes. Assign it in the Inspector.");
+        }
+    }
+
+    private void OnDisable()
+    {
+        inputActions.Camera.Disable();
+
+        if (_placementSystem != null)
+            _placementSystem.OnBuildHeightChanged -= HandleBuildHeightChanged;
+    }
 
     private void Start()
     {
@@ -56,6 +99,20 @@ public class BuilderCameraController : MonoBehaviour
 
         currentZoomProfile = initialZoomProgress;
         targetZoomProfile = initialZoomProgress;
+
+        // Start the height target at the rig's current position so it
+        // doesn't jump on the very first frame.
+        _targetHeight = transform.position.y;
+    }
+
+    /// <summary>
+    /// Called whenever PlacementSystem's build height changes. worldHeight is
+    /// already in world space (PlacementSystem converts via Grid.CellToWorld),
+    /// so this class never needs to know about grid cell sizing.
+    /// </summary>
+    private void HandleBuildHeightChanged(float worldHeight)
+    {
+        _targetHeight = worldHeight;
     }
 
     private void OnScrollInput(float value)
@@ -81,6 +138,7 @@ public class BuilderCameraController : MonoBehaviour
 
         HandleTransitions();
         HandleRigMovement();
+        HandleHeightFollow();
     }
 
     private void HandleTransitions()
@@ -122,5 +180,19 @@ public class BuilderCameraController : MonoBehaviour
         float activeSpeed = isSprinting ? sprintMoveSpeed : normalMoveSpeed;
 
         transform.position += movementDirection.normalized * activeSpeed * Time.deltaTime;
+    }
+
+    /// <summary>
+    /// MULTI-LEVEL: eases the rig's world-space Y toward _targetHeight (set
+    /// via HandleBuildHeightChanged) using Mathf.SmoothDamp. Runs after
+    /// HandleRigMovement, which only ever touches X/Z (forward/right are
+    /// flattened to y=0), so there's no fight over which method owns the
+    /// rig's vertical position.
+    /// </summary>
+    private void HandleHeightFollow()
+    {
+        Vector3 position = transform.position;
+        position.y = Mathf.SmoothDamp(position.y, _targetHeight, ref _heightVelocity, heightFollowSmoothTime);
+        transform.position = position;
     }
 }

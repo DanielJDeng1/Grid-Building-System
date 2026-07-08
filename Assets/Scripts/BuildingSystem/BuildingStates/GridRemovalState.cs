@@ -3,26 +3,26 @@ using UnityEngine;
 
 /// <summary>
 /// Building state for removing grid-based objects.
-/// Checks for placed objects and removes them on click.
+/// Checks for placed objects and removes them on click, or across a dragged
+/// rectangle for multi-removal.
 /// 
-/// REMOVAL PRIORITY:
-/// Checks layers in order: Furniture → Floor → Ceiling
+/// MULTI-REMOVAL:
+/// Pressing the mouse button records the drag origin cell (OnActionStart),
+/// holding and moving the mouse shows a bounding-box preview in the "will be
+/// removed" (invalid/red) material (OnHold), and releasing (OnAction) removes
+/// whatever occupies each cell in the rectangle, using the existing per-cell
+/// priority order (Furniture then Floor then Ceiling), unrestricted by layer.
+/// 
+/// A single click (no mouse movement) is just a 1x1 rectangle, so single-cell
+/// removal behavior is unchanged.
+/// 
+/// REMOVAL PRIORITY (per cell):
+/// Checks layers in order: Furniture -> Floor -> Ceiling
 /// Removes the first object found in the priority order.
 /// 
-/// PERFORMANCE FIX:
-/// Optimized priority check to avoid redundant dictionary lookups.
-/// Now performs single-pass validation that returns both GridData reference
-/// and object index, eliminating duplicate lookups.
-/// 
 /// PREVIEW INTEGRATION:
-/// - Activates GridRemovalPreview state on construction
-/// - Shows red indicator cube when hovering over removable object
-/// - Updates validity based on whether object exists at position
-/// 
-/// VALIDATION:
-/// Uses inverted CanPlaceObjectAt() logic:
-/// - If position is occupied, removal is valid (shows red preview)
-/// - If position is empty, removal is invalid (no object to remove)
+/// - Single-cell hover: GridRemovalPreview (red indicator cube)
+/// - Active drag: GridMultiPlacePreview (resizable bounding-box cube)
 /// </summary>
 public class GridRemovalState : IBuildingState
 {
@@ -34,6 +34,9 @@ public class GridRemovalState : IBuildingState
     private ObjectPlacer _objectPlacer;
 
     private List<Vector2Int> _positionsToBeFilled;
+
+    // MULTI-REMOVAL: drag origin cell, set on mouse-down, cleared on commit.
+    private Vector3Int? _dragOrigin = null;
 
     public GridRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, 
                            GridData floorData, GridData furnitureData, GridData ceilingData)
@@ -57,16 +60,45 @@ public class GridRemovalState : IBuildingState
         _previewSystem.StopShowingPreview();
     }
 
-    public void OnAction(Vector3Int gridPosition)
+    /// <summary>
+    /// Called on mouse-down. Records the drag origin and switches to the
+    /// rectangle bounds preview.
+    /// </summary>
+    public void OnActionStart(Vector3Int gridPosition)
     {
-        // PERFORMANCE FIX: Single-pass priority check with object index retrieval
-        var removalData = GetRemovalDataWithPriority(gridPosition);
+        _dragOrigin = gridPosition;
+        _previewSystem.StartShowingGridMultiPlacePreview(_grid.CellToWorld(gridPosition));
+    }
 
-        if (removalData.data == null || removalData.objectIndex == -1)
+    /// <summary>
+    /// Called every frame while the mouse button is held. Updates the
+    /// rectangle bounds preview, always shown in the "will be removed"
+    /// (invalid/red) material.
+    /// </summary>
+    public void OnHold(Vector3Int gridPosition)
+    {
+        if (!_dragOrigin.HasValue)
             return;
 
-        removalData.data.RemoveObjectAt(gridPosition);  
-        _objectPlacer.RemoveObjectAt(removalData.objectIndex);
+        Vector3 worldPosition = _grid.CellToWorld(gridPosition);
+        _previewSystem.UpdatePosition(worldPosition, false);
+    }
+
+    /// <summary>
+    /// Commits the action. If a drag is active, removes everything found
+    /// across the rectangle. Otherwise falls back to single-cell removal.
+    /// </summary>
+    public void OnAction(Vector3Int gridPosition)
+    {
+        if (_dragOrigin.HasValue)
+        {
+            RemoveRectangle(_dragOrigin.Value, gridPosition);
+            _dragOrigin = null;
+            _previewSystem.StartShowingGridRemovalPreview(_grid.CellToWorld(gridPosition));
+            return;
+        }
+
+        RemoveSingle(gridPosition);
     }
 
     public void UpdateState(Vector3Int gridPosition)
@@ -85,12 +117,45 @@ public class GridRemovalState : IBuildingState
         return;
     }
 
-    public void OnHold(Vector3Int mousePosition)
+    #region Helper Methods
+
+    /// <summary>
+    /// Original single-cell removal logic, unchanged. Used directly for a
+    /// non-drag click, and once per cell when committing a rectangle removal.
+    /// </summary>
+    private void RemoveSingle(Vector3Int gridPosition)
     {
-        // Multi-deletion will be implemented in next phase
+        var removalData = GetRemovalDataWithPriority(gridPosition);
+
+        if (removalData.data == null || removalData.objectIndex == -1)
+            return;
+
+        removalData.data.RemoveObjectAt(gridPosition);
+        _objectPlacer.RemoveObjectAt(removalData.objectIndex);
     }
 
-    #region Helper Methods
+    /// <summary>
+    /// Removes whatever occupies each cell in the rectangle bounded by origin
+    /// and current, reusing the existing single-cell priority removal per cell.
+    /// </summary>
+    private void RemoveRectangle(Vector3Int origin, Vector3Int current)
+    {
+        int minX = Mathf.Min(origin.x, current.x);
+        int maxX = Mathf.Max(origin.x, current.x);
+        int minZ = Mathf.Min(origin.z, current.z);
+        int maxZ = Mathf.Max(origin.z, current.z);
+
+        for (int x = minX; x <= maxX; x++)
+        {
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                // MULTI-LEVEL: uses current.y (the height active at commit
+                // time), not origin.y, so a build-height change mid-drag is
+                // respected rather than removing at a stale height.
+                RemoveSingle(new Vector3Int(x, current.y, z));
+            }
+        }
+    }
 
     /// <summary>
     /// PERFORMANCE FIX: Single-pass priority check that returns both GridData and object index.

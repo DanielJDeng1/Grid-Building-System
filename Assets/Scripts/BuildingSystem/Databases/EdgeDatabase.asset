@@ -24,7 +24,7 @@ MonoBehaviour:
     ID: 1
     buildType: 0
   - name: Wall
-    positionsFilled: ffffffff00000000
+    positionsFilled: 00000000ffffffff
     prefab: {fileID: 4793896007788827952, guid: 045cfb1c176ceaf4894b034b756184c0, type: 3}
     ID: 2
     buildType: 0

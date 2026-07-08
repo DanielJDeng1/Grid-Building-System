@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 /// <summary>
@@ -5,15 +6,39 @@ using UnityEngine;
 /// Manages building state transitions and input event binding.
 /// 
 /// SUPPORTED MODES:
-/// - Grid object placement (floors, furniture, ceilings)
-/// - Grid object removal
-/// - Edge object placement (walls, fences, railings)
-/// - Edge object removal
+/// - Grid object placement (floors, furniture, ceilings) - Floor/Ceiling support rectangle drag-fill
+/// - Grid object removal - supports rectangle drag-removal
+/// - Edge object placement (walls, fences, railings) - single-click only
+/// - Edge object removal - single-click only
+/// 
+/// DRAG INPUT FLOW:
+/// - Mouse down  -> OnActionStart(gridPosition): records drag origin (if the active state supports it)
+/// - Mouse held  -> OnHold(gridPosition): every frame, drives the drag/bounds preview
+/// - Mouse up    -> OnAction(gridPosition): commits the action (single cell/edge, or full rectangle)
+/// This mirrors IBuildingState exactly, so the input flow adapts per-state without
+/// PlacementSystem needing to know which states support dragging.
 /// 
 /// MULTI-LEVEL BUILDING:
-/// Uses an offset-based system where placement Y-coordinate is determined by _currentBuildHeight.
-/// Build height can be changed via public methods (IncreaseBuildHeight/DecreaseBuildHeight).
-/// Y-level increments are configurable via _buildHeightIncrement (default: 3 units).
+/// Uses an offset-based system where placement Y-coordinate is determined by _currentBuildHeight
+/// (in grid cell units). Build height can be changed via public methods
+/// (IncreaseBuildHeight/DecreaseBuildHeight). Y-level increments are configurable via
+/// _buildHeightIncrement (default: 3 units).
+/// 
+/// MULTI-LEVEL PREVIEW/CURSOR FIX:
+/// RefreshPreviewAtCurrentHeight() recomputes the cursor's grid position FROM SCRATCH via
+/// GetCurrentGridPosition() every time build height changes - it does not just patch the Y
+/// of a previously cached position. This matters because the camera is pitched (not a
+/// top-down orthographic view): the X/Z the cursor is aiming at on the OLD height's plane is
+/// generally different from the X/Z it aims at on the NEW height's plane, even though the
+/// mouse hasn't moved on screen. It also routes to OnHold (not UpdateState) while a drag is
+/// active, so the multi-place/multi-removal rectangle preview updates through the same path
+/// it normally would.
+/// 
+/// CAMERA / GRID VISUAL INTEGRATION:
+/// OnBuildHeightChanged fires (with the new WORLD-SPACE height, via Grid.CellToWorld)
+/// whenever build height changes, so BuilderCameraController and GridSnapToView can react
+/// (camera fly-to, grid visualization repositioning) without PlacementSystem needing any
+/// reference to either of them.
 /// 
 /// ARCHITECTURE:
 /// Uses State pattern to handle different building modes.
@@ -37,6 +62,10 @@ using UnityEngine;
 /// - Assign ObjectPlacer component
 /// - Assign PreviewSystem component
 /// - Configure buildHeightIncrement (e.g., 3 for floors every 3 units)
+/// - To enable camera fly-to and grid-visual height tracking, assign THIS
+///   PlacementSystem in BuilderCameraController's and GridSnapToView's
+///   Inspector reference fields. Both log a warning on Awake/OnEnable if
+///   left unassigned, since that failure mode is otherwise silent.
 /// </summary>
 public class PlacementSystem : MonoBehaviour
 {
@@ -54,6 +83,14 @@ public class PlacementSystem : MonoBehaviour
     [SerializeField] private int _minBuildHeight = 0; // Minimum Y-level (ground)
     [SerializeField] private int _maxBuildHeight = 30; // Maximum Y-level (10 floors at increment of 3)
 
+    /// <summary>
+    /// Fired whenever the active build height changes, carrying the new
+    /// height already converted to WORLD SPACE (via Grid.CellToWorld) so
+    /// listeners like the camera or the grid visualization never need to
+    /// know about grid cell sizing.
+    /// </summary>
+    public event Action<float> OnBuildHeightChanged;
+
     private GridData _floorData;
     private GridData _furnitureData;
     private GridData _ceilingData;
@@ -63,8 +100,13 @@ public class PlacementSystem : MonoBehaviour
 
     private IBuildingState _buildingState;
 
-    // MULTI-LEVEL: Current build height offset (in grid units)
+    // MULTI-LEVEL: Current build height offset (in grid cell units)
     private int _currentBuildHeight = 0;
+
+    // DRAG INPUT: True from mouse-down until mouse-up. Drives whether Update()
+    // (and RefreshPreviewAtCurrentHeight) calls OnHold (dragging) or
+    // UpdateState (plain hover) each frame.
+    private bool _isHolding = false;
 
     private void Start()
     {
@@ -91,8 +133,8 @@ public class PlacementSystem : MonoBehaviour
             _currentBuildHeight = newHeight;
             Debug.Log($"Build height increased to Y={_currentBuildHeight}");
             
-            // Refresh preview at new height if building mode is active
             RefreshPreviewAtCurrentHeight();
+            NotifyBuildHeightChanged();
         }
         else
         {
@@ -113,8 +155,8 @@ public class PlacementSystem : MonoBehaviour
             _currentBuildHeight = newHeight;
             Debug.Log($"Build height decreased to Y={_currentBuildHeight}");
             
-            // Refresh preview at new height if building mode is active
             RefreshPreviewAtCurrentHeight();
+            NotifyBuildHeightChanged();
         }
         else
         {
@@ -133,6 +175,7 @@ public class PlacementSystem : MonoBehaviour
         Debug.Log($"Build height set to Y={_currentBuildHeight}");
         
         RefreshPreviewAtCurrentHeight();
+        NotifyBuildHeightChanged();
     }
 
     /// <summary>
@@ -154,23 +197,53 @@ public class PlacementSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Refreshes the preview position when build height changes.
-    /// Forces an immediate UpdateState call to reposition the preview.
+    /// Refreshes the preview/cursor position when build height changes.
+    /// 
+    /// FIX: Recomputes the grid position FROM SCRATCH via GetCurrentGridPosition()
+    /// (a fresh raycast against the NEW height's plane) rather than patching the Y
+    /// of the previously cached _lastDetectedPosition. Also routes to OnHold instead
+    /// of UpdateState while a drag is active, so the multi-place/removal rectangle
+    /// preview (which only updates via OnHold) is refreshed correctly too.
     /// </summary>
     private void RefreshPreviewAtCurrentHeight()
     {
-        if (_buildingState != null && _lastDetectedPosition.HasValue)
+        if (_buildingState == null)
+            return;
+
+        Vector3Int updatedPosition = GetCurrentGridPosition();
+
+        if (_isHolding)
         {
-            // Create new grid position with updated Y-level
-            Vector3Int updatedPosition = new Vector3Int(
-                _lastDetectedPosition.Value.x,
-                _currentBuildHeight,
-                _lastDetectedPosition.Value.z
-            );
-            
-            _buildingState.UpdateState(updatedPosition);
-            _lastDetectedPosition = updatedPosition;
+            _buildingState.OnHold(updatedPosition);
         }
+        else
+        {
+            _buildingState.UpdateState(updatedPosition);
+        }
+
+        _lastDetectedPosition = updatedPosition;
+    }
+
+    /// <summary>
+    /// Fires OnBuildHeightChanged with the current build height converted to
+    /// world space. Kept as one method so every height-change entry point
+    /// notifies listeners identically.
+    /// </summary>
+    private void NotifyBuildHeightChanged()
+    {
+        OnBuildHeightChanged?.Invoke(GetCurrentBuildWorldHeight());
+    }
+
+    /// <summary>
+    /// Converts _currentBuildHeight (grid cell units) to world-space Y via
+    /// Grid.CellToWorld - the same conversion already used everywhere else in
+    /// this system to position placed objects, so height-following code stays
+    /// consistent with where objects actually end up in the scene. Public
+    /// because the camera and GridSnapToView both need this to stay in sync.
+    /// </summary>
+    public float GetCurrentBuildWorldHeight()
+    {
+        return _grid.CellToWorld(new Vector3Int(0, _currentBuildHeight, 0)).y;
     }
 
     #endregion
@@ -296,6 +369,7 @@ public class PlacementSystem : MonoBehaviour
         UnbindInputEvents();
 
         _lastDetectedPosition = null;
+        _isHolding = false;
         _buildingState = null;
     }
 
@@ -308,7 +382,8 @@ public class PlacementSystem : MonoBehaviour
     /// </summary>
     private void BindInputEvents()
     {
-        _inputManager.OnMouseRelease += PlaceStructure;
+        _inputManager.OnMouseDown += BeginAction;
+        _inputManager.OnMouseRelease += CommitAction;
         _inputManager.OnExit += StopPlacement;
         _inputManager.OnPressR += Rotate;
         _inputManager.OnPageUp += IncreaseBuildHeight;
@@ -320,7 +395,8 @@ public class PlacementSystem : MonoBehaviour
     /// </summary>
     private void UnbindInputEvents()
     {
-        _inputManager.OnMouseRelease -= PlaceStructure;
+        _inputManager.OnMouseDown -= BeginAction;
+        _inputManager.OnMouseRelease -= CommitAction;
         _inputManager.OnExit -= StopPlacement;
         _inputManager.OnPressR -= Rotate;
         _inputManager.OnPageUp -= IncreaseBuildHeight;
@@ -328,19 +404,32 @@ public class PlacementSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Handles placement action (mouse release).
-    /// Delegates to active building state.
+    /// Handles the start of a click/drag (mouse down).
+    /// Delegates to active building state's OnActionStart, which records a drag
+    /// origin for states that support it and is a no-op for the rest.
     /// </summary>
-    private void PlaceStructure()
+    private void BeginAction()
     {
-        if (_inputManager.IsPointerOverUI())
+        if (_inputManager.IsPointerOverUI() || _buildingState == null)
             return;
 
-        Vector3 mousePosition = _inputManager.GetSelectedMapPosition();
-        Vector3Int gridPosition = _grid.WorldToCell(mousePosition);
-        
-        // MULTI-LEVEL: Override Y-coordinate with current build height
-        gridPosition.y = _currentBuildHeight;
+        Vector3Int gridPosition = GetCurrentGridPosition();
+        _buildingState.OnActionStart(gridPosition);
+        _isHolding = true;
+    }
+
+    /// <summary>
+    /// Handles the commit of a click/drag (mouse release).
+    /// Delegates to active building state's OnAction.
+    /// </summary>
+    private void CommitAction()
+    {
+        _isHolding = false;
+
+        if (_inputManager.IsPointerOverUI() || _buildingState == null)
+            return;
+
+        Vector3Int gridPosition = GetCurrentGridPosition();
         _buildingState.OnAction(gridPosition);
     }
 
@@ -362,7 +451,9 @@ public class PlacementSystem : MonoBehaviour
 
     /// <summary>
     /// Updates building state with current mouse position every frame.
-    /// Only calls UpdateState when grid position changes to minimize overhead.
+    /// While the mouse button is held, routes to OnHold (drag preview);
+    /// otherwise routes to UpdateState (hover preview) only when the grid
+    /// position has changed, to minimize overhead.
     /// MULTI-LEVEL: Applies current build height to Y-coordinate.
     /// </summary>
     private void Update()
@@ -370,11 +461,14 @@ public class PlacementSystem : MonoBehaviour
         if (_buildingState == null)
             return;
 
-        Vector3 mousePosition = _inputManager.GetSelectedMapPosition();
-        Vector3Int gridPosition = _grid.WorldToCell(mousePosition);
-        
-        // MULTI-LEVEL: Override Y-coordinate with current build height
-        gridPosition.y = _currentBuildHeight;
+        Vector3Int gridPosition = GetCurrentGridPosition();
+
+        if (_isHolding)
+        {
+            _buildingState.OnHold(gridPosition);
+            _lastDetectedPosition = gridPosition;
+            return;
+        }
 
         // Only update state when grid position changes
         if (!_lastDetectedPosition.HasValue || _lastDetectedPosition.Value != gridPosition)
@@ -382,6 +476,25 @@ public class PlacementSystem : MonoBehaviour
             _buildingState.UpdateState(gridPosition);
             _lastDetectedPosition = gridPosition;
         }
+    }
+
+    /// <summary>
+    /// Converts the current mouse position to a grid cell, overriding the
+    /// Y-coordinate with the current build height.
+    /// 
+    /// MULTI-LEVEL CURSOR FIX: raycasts against a math plane at the build
+    /// height's WORLD-SPACE Y (see InputManager.GetSelectedMapPositionAtHeight),
+    /// instead of always raycasting the ground plane and overwriting Y after
+    /// the fact - which previously caused the cursor/preview to drift off the
+    /// visual cursor position on any floor above ground level.
+    /// </summary>
+    private Vector3Int GetCurrentGridPosition()
+    {
+        float worldHeight = GetCurrentBuildWorldHeight();
+        Vector3 mousePosition = _inputManager.GetSelectedMapPositionAtHeight(worldHeight);
+        Vector3Int gridPosition = _grid.WorldToCell(mousePosition);
+        gridPosition.y = _currentBuildHeight;
+        return gridPosition;
     }
 
     #endregion
