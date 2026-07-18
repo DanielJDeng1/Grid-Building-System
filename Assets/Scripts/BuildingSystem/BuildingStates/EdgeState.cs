@@ -314,9 +314,18 @@ public class EdgeState : IBuildingState
     /// 
     /// MULTI-LEVEL FIX: Now preserves tilePosition.y in all edge coordinates.
     /// 
+    /// BUG FIX: Deg90 previously extended BACKWARD (tilePosition to
+    /// tilePosition.z - 1), which was inconsistent with a true 90 degree
+    /// rotation for multi-segment (positionsFilled with more than one entry)
+    /// objects - verified numerically against an actual rotation of the mesh's
+    /// endpoints around the pivot. It now extends FORWARD, structurally
+    /// identical to Deg0 just on the Z axis, so offset o always maps to
+    /// interval [o, o+1] regardless of which axis is active. This also
+    /// shifts single-segment Deg90 placement by one tile compared to before.
+    /// 
     /// Rotation Mapping:
     /// - Deg0: Edge along positive X-axis from (x, y, z) to (x+1, y, z) - 0° rotation (points East)
-    /// - Deg90: Edge along negative Z-axis from (x, y, z) to (x, y, z-1) - -90° rotation (points South)
+    /// - Deg90: Edge along positive Z-axis from (x, y, z) to (x, y, z+1) - -90° rotation (points North)
     /// 
     /// The edge GameObject is positioned at end1 (the tile origin).
     /// </summary>
@@ -333,7 +342,7 @@ public class EdgeState : IBuildingState
             case EdgeRotation.Deg90:
                 return new Edge(
                     new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z),
-                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z - 1)
+                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z + 1)
                 );
 
             default:

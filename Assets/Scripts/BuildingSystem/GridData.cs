@@ -223,14 +223,21 @@ public class GridData
                 break;
                 
             case EdgeRotation.Deg90:
-                // Vertical edges along negative Z-axis
-                // Base edge: (x, y, z) to (x, y, z-1)
+                // BUG FIX: previously used `-offset` and extended backward
+                // (tilePos to tilePos-1), which produces a REFLECTED shape for
+                // asymmetric positionsFilled rather than a true 90 degree
+                // rotation (verified numerically - see conversation). Now
+                // extends forward (+Z), structurally identical to Deg0 just
+                // on the Z axis, so offset o always maps to interval [o, o+1]
+                // on whichever axis is active, matching how the mesh actually
+                // rotates visually.
+                // Base edge: (x, y, z) to (x, y, z+1)
                 foreach (int offset in positionsFilled)
                 {
-                    Vector3Int tilePos = baseTile + new Vector3Int(0, 0, -offset);
+                    Vector3Int tilePos = baseTile + new Vector3Int(0, 0, offset);
                     Edge edge = new Edge(
                         new Vector3Int(tilePos.x, tilePos.y, tilePos.z),
-                        new Vector3Int(tilePos.x, tilePos.y, tilePos.z - 1)
+                        new Vector3Int(tilePos.x, tilePos.y, tilePos.z + 1)
                     );
                     _cachedEdgesList.Add(edge);
                 }
@@ -266,12 +273,14 @@ public class GridData
                 break;
                 
             case EdgeRotation.Deg90:
+                // BUG FIX: see CalculateEdges above - matches the same
+                // forward-extending (+Z) convention now.
                 foreach (int offset in positionsFilled)
                 {
-                    Vector3Int tilePos = baseTile + new Vector3Int(0, 0, -offset);
+                    Vector3Int tilePos = baseTile + new Vector3Int(0, 0, offset);
                     Edge edge = new Edge(
                         new Vector3Int(tilePos.x, tilePos.y, tilePos.z),
-                        new Vector3Int(tilePos.x, tilePos.y, tilePos.z - 1)
+                        new Vector3Int(tilePos.x, tilePos.y, tilePos.z + 1)
                     );
                     _cachedEdgesList.Add(edge);
                 }

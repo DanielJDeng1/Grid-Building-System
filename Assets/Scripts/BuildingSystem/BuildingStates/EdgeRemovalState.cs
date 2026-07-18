@@ -252,9 +252,14 @@ public class EdgeRemovalState : IBuildingState
     /// 
     /// MULTI-LEVEL FIX: Now preserves tilePosition.y in all edge coordinates.
     /// 
+    /// BUG FIX: Deg90 previously extended BACKWARD (tilePosition to
+    /// tilePosition.z - 1). See EdgeState.CalculateBaseEdge for the full
+    /// explanation - it now extends FORWARD, matching GridData's corrected
+    /// multi-segment rotation math and Deg0's pattern.
+    /// 
     /// Rotation Mapping:
     /// - Deg0: Edge along positive X-axis from (x, y, z) to (x+1, y, z) - 0° rotation (points East)
-    /// - Deg90: Edge along negative Z-axis from (x, y, z) to (x, y, z-1) - -90° rotation (points South)
+    /// - Deg90: Edge along positive Z-axis from (x, y, z) to (x, y, z+1) - -90° rotation (points North)
     /// 
     /// The edge GameObject is positioned at end1 (the tile origin).
     /// </summary>
@@ -271,7 +276,7 @@ public class EdgeRemovalState : IBuildingState
             case EdgeRotation.Deg90:
                 return new Edge(
                     new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z),
-                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z - 1)
+                    new Vector3Int(tilePosition.x, tilePosition.y, tilePosition.z + 1)
                 );
 
             default:
