@@ -31,5 +31,18 @@ MonoBehaviour:
     - {x: 1, y: 1}
     - {x: 0, y: 1}
     prefab: {fileID: 4676486647604318280, guid: 4058da6ae6d53794b8be77f5a9b47283, type: 3}
+    ID: 3
+    buildType: 1
+  - name: Furniture
+    positionsFilled:
+    - {x: 0, y: 0}
+    prefab: {fileID: 7590343297513968773, guid: c073b4897633b5f44b80d985d7e71d26, type: 3}
     ID: 2
+    buildType: 1
+  - name: Furniture
+    positionsFilled:
+    - {x: 0, y: 0}
+    - {x: -1, y: 0}
+    prefab: {fileID: 1927320992012852779, guid: fb0d0b62f22c24d46a8d9846856af77d, type: 3}
+    ID: 4
     buildType: 1

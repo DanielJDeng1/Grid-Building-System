@@ -1,19 +1,8 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Cinemachine;
+using System.Collections.Generic;
 
-/// <summary>
-/// CAMERA + BUILD HEIGHT INTEGRATION:
-/// Subscribes to PlacementSystem.OnBuildHeightChanged and moves the rig's
-/// vertical position toward the new floor's WORLD-SPACE height whenever the
-/// player changes build height (Page Up/Down), using Mathf.SmoothDamp for a
-/// simple, predictable ease rather than hand-rolled decay math.
-/// 
-/// INSPECTOR SETUP (REQUIRED for height-follow):
-/// Assign a PlacementSystem reference in _placementSystem. If left
-/// unassigned, this logs a warning on enable and the camera simply never
-/// changes height - it does not silently half-work.
-/// </summary>
 public class BuilderCameraController : MonoBehaviour
 {
     [Header("Movement")]
@@ -28,7 +17,6 @@ public class BuilderCameraController : MonoBehaviour
     [SerializeField] private float scrollSensitivity = 15f;
     [SerializeField] private float zoomSnappiness = 10f;
     
-    [Tooltip("0: Fully Zoomed In / 1: Fully Zoomed Out")]
     [Range(0f, 1f)] 
     [SerializeField] private float initialZoomProgress = 0.5f;
 
@@ -39,77 +27,94 @@ public class BuilderCameraController : MonoBehaviour
     [SerializeField] private float maxCameraDepth = 40f;  
 
     [Header("Multi-Level Build Height Follow")]
-    [Tooltip("REQUIRED for the camera to follow build height changes. Leaving this empty logs a warning and disables height-follow entirely.")]
     [SerializeField] private PlacementSystem _placementSystem;
-    [Tooltip("Seconds for the rig to reach the new floor height (Mathf.SmoothDamp convention - lower is snappier).")]
     [SerializeField] private float heightFollowSmoothTime = 0.35f;
+
+    [Header("Wall Occlusion Fade")]
+    [SerializeField] private LayerMask occlusionLayerMask;
+    [SerializeField] private Transform focusPoint;
+    [Tooltip("The horizontal half-width and vertical half-height of the upright sweeping box.")]
+    [SerializeField] private float occlusionVolumeRadius = 0.5f;
+    [SerializeField] private float fadeSpeed = 5f;
+    [Range(0f, 1f)]
+    [SerializeField] private float targetFadedAlpha = 0.2f;
+    
+    [Tooltip("The camera pitch angle (in degrees) below which fading is allowed. If pitch is higher than this, walls stay solid.")]
+    [SerializeField] private float fadeAngleThreshold = 50f;
+
+    private static readonly int ColorPropertyId = Shader.PropertyToID("_BaseColor");
+
+    private class FadeState
+    {
+        public Renderer Renderer;
+        public float CurrentAlpha = 1f;
+        public float TargetAlpha = 1f;
+        public Color OriginalColor;
+    }
 
     private InputSystem.Controls inputActions;
     private CinemachineCamera vCam;
+    private Camera mainCam;
     private Vector2 moveInput;
     private float yawInput; 
     private bool isSprinting;
 
     private float targetYaw;
     private float targetZoomProfile; 
-
     private float currentYaw;
     private float currentZoomProfile;
-
-    // MULTI-LEVEL: target world-space Y the rig eases toward, and the
-    // velocity reference SmoothDamp needs to track between frames.
     private float _targetHeight;
     private float _heightVelocity;
+
+    private readonly Dictionary<Renderer, FadeState> _trackedRenderers = new Dictionary<Renderer, FadeState>();
+    private readonly HashSet<Renderer> _hitThisFrame = new HashSet<Renderer>();
+    private readonly List<Renderer> _cleanupList = new List<Renderer>();
+    private MaterialPropertyBlock _mpBlock;
+    private MaterialPropertyBlock _emptyBlock;
+
+    // Gizmo Caching Variables
+    private Vector3 _gizmoStart;
+    private Vector3 _gizmoEnd;
+    private Quaternion _gizmoRotation;
+    private bool _canDrawGizmo;
 
     private void Awake()
     {
         inputActions = new InputSystem.Controls();
         vCam = GetComponentInChildren<CinemachineCamera>();
+        mainCam = Camera.main;
 
         inputActions.Camera.Pitch.performed += ctx => OnScrollInput(ctx.ReadValue<float>());
+
+        _mpBlock = new MaterialPropertyBlock();
+        _emptyBlock = new MaterialPropertyBlock();
     }
 
     private void OnEnable()
     {
         inputActions.Camera.Enable();
-
         if (_placementSystem != null)
-        {
             _placementSystem.OnBuildHeightChanged += HandleBuildHeightChanged;
-        }
-        else
-        {
-            Debug.LogWarning("BuilderCameraController: _placementSystem is not assigned - " +
-                              "the camera will NOT follow build height changes. Assign it in the Inspector.");
-        }
     }
 
     private void OnDisable()
     {
         inputActions.Camera.Disable();
-
         if (_placementSystem != null)
             _placementSystem.OnBuildHeightChanged -= HandleBuildHeightChanged;
+
+        RestoreAllFadedRenderers();
     }
 
     private void Start()
     {
         currentYaw = transform.eulerAngles.y;
         targetYaw = currentYaw;
-
         currentZoomProfile = initialZoomProgress;
         targetZoomProfile = initialZoomProgress;
-
-        // Start the height target at the rig's current position so it
-        // doesn't jump on the very first frame.
         _targetHeight = transform.position.y;
     }
 
-    /// <summary>
-    /// Called whenever PlacementSystem's build height changes. worldHeight is
-    /// already in world space (PlacementSystem converts via Grid.CellToWorld),
-    /// so this class never needs to know about grid cell sizing.
-    /// </summary>
     private void HandleBuildHeightChanged(float worldHeight)
     {
         _targetHeight = worldHeight;
@@ -118,17 +123,14 @@ public class BuilderCameraController : MonoBehaviour
     private void OnScrollInput(float value)
     {
         if (Mathf.Abs(value) < 0.01f) return;
-        
         float scrollDirection = -Mathf.Sign(value);
-        targetZoomProfile += scrollDirection * (scrollSensitivity * 0.01f);
-        targetZoomProfile = Mathf.Clamp01(targetZoomProfile);
+        targetZoomProfile = Mathf.Clamp01(targetZoomProfile + scrollDirection * (scrollSensitivity * 0.01f));
     }
 
     private void Update()
     {
         moveInput = inputActions.Camera.Move.ReadValue<Vector2>();
         yawInput = inputActions.Camera.Yaw.ReadValue<float>();
-        
         isSprinting = inputActions.Camera.Sprint.IsPressed(); 
 
         if (Mathf.Abs(yawInput) > 0.01f)
@@ -139,6 +141,11 @@ public class BuilderCameraController : MonoBehaviour
         HandleTransitions();
         HandleRigMovement();
         HandleHeightFollow();
+    }
+
+    private void LateUpdate()
+    {
+        HandleOcclusionFade();
     }
 
     private void HandleTransitions()
@@ -157,9 +164,7 @@ public class BuilderCameraController : MonoBehaviour
         if (vCam != null)
         {
             Quaternion localRotation = Quaternion.Euler(activePitch, 0f, 0f);
-            Vector3 offsetVector = localRotation * new Vector3(0f, 0f, -activeDepth);
-
-            vCam.transform.localPosition = offsetVector;
+            vCam.transform.localPosition = localRotation * new Vector3(0f, 0f, -activeDepth);
             vCam.transform.localRotation = localRotation;
         }
     }
@@ -168,31 +173,194 @@ public class BuilderCameraController : MonoBehaviour
     {
         if (moveInput.sqrMagnitude < 0.01f) return;
 
-        Vector3 forward = transform.forward;
-        Vector3 right = transform.right;
-        forward.y = 0f;
-        right.y = 0f;
-        forward.Normalize();
-        right.Normalize();
-
+        Vector3 forward = Vector3.ProjectOnPlane(transform.forward, Vector3.up).normalized;
+        Vector3 right = Vector3.ProjectOnPlane(transform.right, Vector3.up).normalized;
         Vector3 movementDirection = (forward * moveInput.y) + (right * moveInput.x);
         
-        float activeSpeed = isSprinting ? sprintMoveSpeed : normalMoveSpeed;
-
-        transform.position += movementDirection.normalized * activeSpeed * Time.deltaTime;
+        transform.position += movementDirection.normalized * (isSprinting ? sprintMoveSpeed : normalMoveSpeed) * Time.deltaTime;
     }
 
-    /// <summary>
-    /// MULTI-LEVEL: eases the rig's world-space Y toward _targetHeight (set
-    /// via HandleBuildHeightChanged) using Mathf.SmoothDamp. Runs after
-    /// HandleRigMovement, which only ever touches X/Z (forward/right are
-    /// flattened to y=0), so there's no fight over which method owns the
-    /// rig's vertical position.
-    /// </summary>
     private void HandleHeightFollow()
     {
         Vector3 position = transform.position;
         position.y = Mathf.SmoothDamp(position.y, _targetHeight, ref _heightVelocity, heightFollowSmoothTime);
         transform.position = position;
+    }
+
+    private void HandleOcclusionFade()
+    {
+        if (mainCam == null) mainCam = Camera.main;
+        if (mainCam == null) return;
+
+        // CRITICAL UPDATE: Check current camera pitch angle.
+        // If the angle is steep (above threshold), fade out the effect completely.
+        float currentPitchAngle = mainCam.transform.eulerAngles.x;
+        // Normalize angle to handle potential wrapping quirks (-180 to 180 conversions)
+        if (currentPitchAngle > 180f) currentPitchAngle -= 360f;
+
+        if (currentPitchAngle > fadeAngleThreshold)
+        {
+            _canDrawGizmo = false;
+            // Mark nothing as hit this frame so existing faded walls transition back smoothly
+            _hitThisFrame.Clear();
+            ProcessFadeTransitions();
+            return;
+        }
+
+        Vector3 rayStart = mainCam.transform.position;
+        Vector3 rayDirection = mainCam.transform.forward;
+        Vector3 targetPos = focusPoint != null ? focusPoint.position : transform.position;
+
+        Quaternion uprightRotation = Quaternion.Euler(0f, currentYaw, 0f);
+        float targetDistance = Vector3.Distance(rayStart, targetPos);
+
+        _hitThisFrame.Clear();
+
+        if (targetDistance > 0.2f)
+        {
+            Vector3 boxHalfExtents = new Vector3(occlusionVolumeRadius, occlusionVolumeRadius, 0.01f);
+            Vector3 correctedStart = rayStart + (rayDirection * 0.1f);
+            float castLength = targetDistance - 0.2f;
+
+            _gizmoStart = correctedStart;
+            _gizmoEnd = correctedStart + (rayDirection * castLength);
+            _gizmoRotation = uprightRotation;
+            _canDrawGizmo = true;
+
+            RaycastHit[] hits = Physics.BoxCastAll(
+                correctedStart, 
+                boxHalfExtents, 
+                rayDirection, 
+                uprightRotation, 
+                castLength, 
+                occlusionLayerMask
+            );
+
+            Plane cutoffPlane = new Plane(-rayDirection, targetPos);
+
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider col = hits[i].collider;
+                if (col == null) continue;
+
+                if (!cutoffPlane.GetSide(col.bounds.min) && !cutoffPlane.GetSide(col.bounds.center))
+                {
+                    continue;
+                }
+
+                Transform rootStructure = col.transform;
+                while (rootStructure.parent != null && 
+                       rootStructure.parent.gameObject.layer == rootStructure.gameObject.layer &&
+                       !rootStructure.parent.name.Contains("Manager") && 
+                       !rootStructure.parent.name.Contains("Grid"))
+                {
+                    rootStructure = rootStructure.parent;
+                }
+
+                Renderer[] structuralRenderers = rootStructure.GetComponentsInChildren<Renderer>();
+
+                foreach (Renderer hitRenderer in structuralRenderers)
+                {
+                    if (hitRenderer == null) continue;
+
+                    _hitThisFrame.Add(hitRenderer);
+
+                    if (!_trackedRenderers.ContainsKey(hitRenderer))
+                    {
+                        Color origColor = hitRenderer.sharedMaterial.HasProperty(ColorPropertyId) 
+                            ? hitRenderer.sharedMaterial.GetColor(ColorPropertyId) 
+                            : Color.white;
+
+                        _trackedRenderers.Add(hitRenderer, new FadeState
+                        {
+                            Renderer = hitRenderer,
+                            CurrentAlpha = 1f,
+                            TargetAlpha = targetFadedAlpha,
+                            OriginalColor = origColor
+                        });
+                    }
+                    else
+                    {
+                        _trackedRenderers[hitRenderer].TargetAlpha = targetFadedAlpha;
+                    }
+                }
+            }
+        }
+        else
+        {
+            _canDrawGizmo = false;
+        }
+
+        ProcessFadeTransitions();
+    }
+
+    private void ProcessFadeTransitions()
+    {
+        foreach (var kvp in _trackedRenderers)
+        {
+            if (!_hitThisFrame.Contains(kvp.Key))
+            {
+                kvp.Value.TargetAlpha = 1f;
+            }
+        }
+
+        _cleanupList.Clear();
+        foreach (var kvp in _trackedRenderers)
+        {
+            FadeState state = kvp.Value;
+            if (state.Renderer == null)
+            {
+                _cleanupList.Add(kvp.Key);
+                continue;
+            }
+
+            state.CurrentAlpha = Mathf.MoveTowards(state.CurrentAlpha, state.TargetAlpha, fadeSpeed * Time.deltaTime);
+
+            state.Renderer.GetPropertyBlock(_mpBlock);
+            Color updatedColor = state.OriginalColor;
+            updatedColor.a = state.CurrentAlpha;
+            _mpBlock.SetColor(ColorPropertyId, updatedColor);
+            state.Renderer.SetPropertyBlock(_mpBlock);
+
+            if (Mathf.Approximately(state.CurrentAlpha, 1f) && Mathf.Approximately(state.TargetAlpha, 1f))
+            {
+                state.Renderer.SetPropertyBlock(_emptyBlock);
+                _cleanupList.Add(kvp.Key);
+            }
+        }
+
+        foreach (var renderer in _cleanupList)
+        {
+            _trackedRenderers.Remove(renderer);
+        }
+    }
+
+    private void RestoreAllFadedRenderers()
+    {
+        foreach (var kvp in _trackedRenderers)
+        {
+            if (kvp.Key != null)
+            {
+                kvp.Key.SetPropertyBlock(_emptyBlock);
+            }
+        }
+        _trackedRenderers.Clear();
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (!_canDrawGizmo || !Application.isPlaying || mainCam == null) return;
+
+        Gizmos.color = Color.cyan;
+        Gizmos.matrix = Matrix4x4.TRS(_gizmoStart, _gizmoRotation, Vector3.one);
+        Gizmos.DrawWireCube(Vector3.zero, new Vector3(occlusionVolumeRadius * 2f, occlusionVolumeRadius * 2f, 0.02f));
+
+        Gizmos.color = Color.red;
+        Gizmos.matrix = Matrix4x4.TRS(_gizmoEnd, _gizmoRotation, Vector3.one);
+        Gizmos.DrawWireCube(Vector3.zero, new Vector3(occlusionVolumeRadius * 2f, occlusionVolumeRadius * 2f, 0.02f));
+        
+        Gizmos.matrix = Matrix4x4.identity;
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawLine(_gizmoStart, _gizmoEnd);
     }
 }
