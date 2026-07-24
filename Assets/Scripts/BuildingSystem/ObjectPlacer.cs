@@ -16,10 +16,33 @@ using System.Collections.Generic;
 /// Both grid objects and edge objects share the same placement list since they're
 /// both GameObjects with identical lifecycle management. This reduces code duplication
 /// and simplifies the object tracking system.
+/// 
+/// MESH CHUNKING:
+/// Floor grid objects and ALL edge objects (walls, fences, railings) are no longer
+/// instantiated as individual GameObjects.
+///   - Floor objects go to FloorChunkManager, which buckets them spatially (no contiguity
+///     requirement - floors never need to be independently toggled).
+///   - Wall/edge objects go to WallChunkManager, which groups them by CONTIGUOUS STRAIGHT
+///     RUN instead of spatial bucket - this matters for future dynamic wall hiding, where a
+///     whole side of a room needs to be one toggleable visual unit. A square room's 4 walls
+///     are always 4 separate chunks, since contiguity never crosses an orientation change.
+/// Furniture and Ceiling objects are unaffected and still go through the free-list path
+/// below, since they need individual GameObject identity (scripts, physics, etc).
+/// 
+/// Handles returned from chunked placements are negative ints allocated via
+/// ChunkHandleRegistry, which also remembers which manager owns each handle - so
+/// RemoveObjectAt/RemoveEdgeAt can route correctly without knowing which chunking system
+/// (or how many) are involved.
 /// </summary>
 public class ObjectPlacer : MonoBehaviour
 {
     [SerializeField] private List<GameObject> _placedGameObjects = new List<GameObject>();
+
+    [Tooltip("Handles chunked Floor placements. Required for PlaceObject to function for Floor build types.")]
+    [SerializeField] private FloorChunkManager _floorChunkManager;
+
+    [Tooltip("Handles chunked Wall/edge placements. Required for PlaceEdge to function.")]
+    [SerializeField] private WallChunkManager _wallChunkManager;
     
     // Free list: tracks indices where GameObjects have been destroyed and can be reused
     // Stack provides O(1) push/pop operations for index recycling
@@ -41,9 +64,23 @@ public class ObjectPlacer : MonoBehaviour
     /// <param name="prefab">GameObject prefab to instantiate</param>
     /// <param name="position">World position (typically from Grid.CellToWorld)</param>
     /// <param name="rotation">Grid rotation enum determining Y-axis rotation</param>
-    /// <returns>Index in the placement list for later removal reference</returns>
-    public int PlaceObject(GameObject prefab, Vector3 position, GridRotation rotation)
+    /// <param name="buildType">
+    /// Build type from the object's ObjectData. Floor objects are routed to
+    /// FloorChunkManager and never instantiated; Furniture/Ceiling fall through to the
+    /// normal instantiate path.
+    /// </param>
+    /// <returns>
+    /// Index/handle for later removal via RemoveObjectAt. Non-negative for instantiated
+    /// (Furniture/Ceiling) objects, negative for chunked (Floor) objects.
+    /// </returns>
+    public int PlaceObject(GameObject prefab, Vector3 position, GridRotation rotation, ObjectBuildType buildType)
     {
+        if (buildType == ObjectBuildType.Floor)
+        {
+            Matrix4x4 worldMatrix = ChunkRotationMath.GetGridObjectMatrix(position, rotation);
+            return _floorChunkManager.AddEntry(prefab, position, worldMatrix);
+        }
+
         GameObject newObject = Instantiate(prefab);
         newObject.transform.position = position;
 
@@ -74,22 +111,16 @@ public class ObjectPlacer : MonoBehaviour
     /// Edge GameObjects are positioned at the grid integer coordinate (the pivot).
     /// Rotation is applied to the PARENT GameObject's transform, not individual children.
     /// </summary>
-    /// <param name="prefab">Edge GameObject prefab to instantiate</param>
+    /// <param name="prefab">Edge GameObject prefab (NOT instantiated - see MESH CHUNKING note above)</param>
     /// <param name="position">World position of the edge (grid integer coordinate)</param>
     /// <param name="rotation">Edge rotation determining orientation</param>
-    /// <returns>Index in the placement list for later removal reference</returns>
+    /// <returns>Negative chunk-entry handle for later removal via RemoveEdgeAt</returns>
     public int PlaceEdge(GameObject prefab, Vector3 position, EdgeRotation rotation)
     {
-        GameObject newObject = Instantiate(prefab);
-        newObject.transform.position = position;
-
-        // Apply rotation to parent GameObject transform
-        // Deg0: 0° (horizontal - along positive X-axis)
-        // Deg90: -90° (vertical - along negative Z-axis)
-        float rotationAngle = rotation == EdgeRotation.Deg0 ? 0f : -90f;
-        newObject.transform.Rotate(Vector3.up, rotationAngle);
-
-        return AddToPlacementList(newObject);
+        // All edges (walls, fences, railings) are chunked by contiguous run - no GameObject
+        // is instantiated. WallChunkManager computes the world matrix internally since it
+        // needs the rotation to determine which axis the run extends along.
+        return _wallChunkManager.AddEntry(prefab, position, rotation);
     }
 
     #endregion
@@ -97,11 +128,18 @@ public class ObjectPlacer : MonoBehaviour
     #region Object Removal
 
     /// <summary>
-    /// Removes an object at the specified index and returns the index to the free list.
-    /// Works for both grid objects and edge objects.
+    /// Removes an object at the specified index/handle. Works for grid objects, edge objects,
+    /// AND chunked entries (Floor grid objects, all edges) - chunked handles are negative and
+    /// are routed through ChunkHandleRegistry to whichever manager (Floor or Wall) owns them.
     /// </summary>
     public void RemoveObjectAt(int gameObjectIndex)
     {
+        if (ChunkHandleRegistry.IsChunkedHandle(gameObjectIndex))
+        {
+            ChunkHandleRegistry.Remove(gameObjectIndex);
+            return;
+        }
+
         if (!IsValidIndex(gameObjectIndex))
             return;
 
@@ -111,8 +149,9 @@ public class ObjectPlacer : MonoBehaviour
     }
 
     /// <summary>
-    /// Removes an edge object at the specified index and returns the index to the free list.
-    /// Functionally identical to RemoveObjectAt - kept for API clarity.
+    /// Removes an edge object at the specified handle. Since all edges are chunked, this will
+    /// always route through ChunkHandleRegistry to WallChunkManager in practice - kept as its
+    /// own method for API clarity and in case non-chunked edge types are ever reintroduced.
     /// </summary>
     public void RemoveEdgeAt(int gameObjectIndex)
     {

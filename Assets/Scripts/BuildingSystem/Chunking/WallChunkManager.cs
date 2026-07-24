@@ -1,0 +1,338 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+/// <summary>
+/// Manages mesh-chunked Wall (edge) objects using CONTIGUOUS RUN chunking - unlike floors,
+/// walls are grouped purely by "am I part of an unbroken straight line," not by spatial
+/// bucket. A run only ever contains wall tiles of the SAME orientation that are positionally
+/// adjacent; two runs of different orientation never merge even if geometrically touching
+/// (e.g. the 4 sides of a square room are always 4 separate runs/chunks, meeting at corners).
+///
+/// This is required for future dynamic wall hiding, where an entire contiguous wall segment
+/// (one side of a room) needs to be toggled as a single visual unit - spatial bucketing
+/// (used for floors) would slice/merge runs based on arbitrary chunk boundaries instead of
+/// where the walls actually start and end.
+///
+/// CONTIGUITY RULE:
+/// Merging is based purely on position + orientation adjacency - a wall tile always merges
+/// into an adjacent run regardless of prefab/wall type. A line of mixed wall prefabs is still
+/// one contiguous run/chunk.
+///
+/// RUN KEY:
+/// A run lives along a fixed axis: Deg0 runs share (z, buildHeight) and extend along x;
+/// Deg90 runs share (x, buildHeight) and extend along z. RunKey identifies that axis;
+/// the "coordinate" is the tile's position along it.
+///
+/// ADD ALGORITHM:
+/// - Neither neighbor (coordinate-1 / coordinate+1) occupied -> start a new 1-tile run.
+/// - Exactly one neighbor occupied -> extend that run (if under the length cap).
+/// - Both neighbors occupied -> by construction they must belong to two DIFFERENT runs
+///   (if they were the same run, this coordinate wouldn't have been a gap a moment ago) ->
+///   merge them (if the combined length fits under the cap - see MAX RUN LENGTH below).
+///
+/// REMOVE ALGORITHM:
+/// - Removing an end tile just shrinks the run.
+/// - Removing an interior tile (both remaining neighbors still present) SPLITS the run into
+///   two: everything left of the gap keeps the existing chunk, everything right of the gap
+///   becomes a new chunk.
+///
+/// MAX RUN LENGTH:
+/// A single very long wall would be one giant mesh that fully rebuilds on any single edit
+/// anywhere along it. _maxRunLength forces a chunk boundary even mid-run: extending or
+/// merging that would exceed the cap is skipped in favor of leaving a boundary between two
+/// (still gap-free, still visually seamless) neighboring chunks instead.
+/// </summary>
+public class WallChunkManager : MonoBehaviour, IChunkOwner
+{
+    [Header("Chunking")]
+    [Tooltip("Maximum tiles in a single contiguous wall run before a chunk boundary is forced, even mid-run.")]
+    [SerializeField] private int _maxRunLength = 32;
+
+    [Tooltip("Optional parent transform for generated chunk mesh GameObjects. Defaults to this GameObject's transform.")]
+    [SerializeField] private Transform _chunkParent;
+
+    [Tooltip("Generates one BoxCollider per contiguous wall run - exact by construction, since a run is always a straight line.")]
+    [SerializeField] private bool _generateColliders = true;
+
+    private readonly struct RunKey : IEquatable<RunKey>
+    {
+        public readonly EdgeRotation rotation;
+        public readonly int lockedCoordinate;
+        public readonly int height;
+
+        public RunKey(EdgeRotation rotation, int lockedCoordinate, int height)
+        {
+            this.rotation = rotation;
+            this.lockedCoordinate = lockedCoordinate;
+            this.height = height;
+        }
+
+        public bool Equals(RunKey other) =>
+            rotation == other.rotation && lockedCoordinate == other.lockedCoordinate && height == other.height;
+
+        public override bool Equals(object obj) => obj is RunKey other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(rotation, lockedCoordinate, height);
+    }
+
+    private class WallRun
+    {
+        public RunKey key;
+        public Chunk meshChunk;
+
+        // coordinate -> handle. Kept alongside the Chunk (which stores handle -> mesh data)
+        // so we can answer "what's adjacent to this coordinate" and "split this run at this
+        // coordinate" without needing the Chunk itself to know about spatial ordering.
+        public readonly SortedDictionary<int, int> coordinateToHandle = new();
+    }
+
+    private int _nextRunId = 0;
+    private readonly Dictionary<int, WallRun> _runs = new();
+    private readonly Dictionary<(RunKey key, int coordinate), int> _positionToRunId = new();
+    private readonly Dictionary<int, (RunKey key, int coordinate)> _handleToPosition = new();
+    private readonly HashSet<int> _dirtyRuns = new();
+
+    #region Public API
+
+    /// <summary>
+    /// Registers a chunked Wall placement.
+    /// </summary>
+    /// <param name="prefab">Prefab asset reference (NOT instantiated).</param>
+    /// <param name="position">World placement position (grid integer coordinate of the edge).</param>
+    /// <param name="rotation">Edge rotation - determines which axis this wall's run extends along.</param>
+    /// <returns>A negative handle (from ChunkHandleRegistry) for later removal.</returns>
+    public int AddEntry(GameObject prefab, Vector3 position, EdgeRotation rotation)
+    {
+        Vector3Int tile = Vector3Int.RoundToInt(position);
+
+        RunKey key = rotation == EdgeRotation.Deg0
+            ? new RunKey(EdgeRotation.Deg0, tile.z, tile.y)
+            : new RunKey(EdgeRotation.Deg90, tile.x, tile.y);
+
+        int coordinate = rotation == EdgeRotation.Deg0 ? tile.x : tile.z;
+
+        bool leftOccupied = _positionToRunId.TryGetValue((key, coordinate - 1), out int leftRunId);
+        bool rightOccupied = _positionToRunId.TryGetValue((key, coordinate + 1), out int rightRunId);
+
+        int targetRunId = ResolveTargetRun(key, leftOccupied, leftRunId, rightOccupied, rightRunId);
+
+        Matrix4x4 worldMatrix = ChunkRotationMath.GetEdgeObjectMatrix(position, rotation);
+        int handle = ChunkHandleRegistry.Register(this);
+
+        WallRun run = _runs[targetRunId];
+        run.coordinateToHandle[coordinate] = handle;
+        run.meshChunk.AddEntry(handle, new ChunkEntry(prefab, worldMatrix));
+
+        _positionToRunId[(key, coordinate)] = targetRunId;
+        _handleToPosition[handle] = (key, coordinate);
+
+        MarkDirty(targetRunId);
+        return handle;
+    }
+
+    /// <summary>
+    /// Removes a previously-added entry, splitting or shrinking its run as needed.
+    /// Called by ChunkHandleRegistry - do not call directly from ObjectPlacer.
+    /// </summary>
+    public void RemoveEntry(int handle)
+    {
+        if (!_handleToPosition.TryGetValue(handle, out (RunKey key, int coordinate) location))
+            return;
+
+        _handleToPosition.Remove(handle);
+
+        if (!_positionToRunId.TryGetValue((location.key, location.coordinate), out int runId))
+            return;
+
+        _positionToRunId.Remove((location.key, location.coordinate));
+
+        if (!_runs.TryGetValue(runId, out WallRun run))
+            return;
+
+        run.coordinateToHandle.Remove(location.coordinate);
+        run.meshChunk.RemoveEntry(handle);
+        MarkDirty(runId);
+
+        if (run.coordinateToHandle.Count == 0)
+        {
+            run.meshChunk.DestroySelf();
+            _runs.Remove(runId);
+            _dirtyRuns.Remove(runId);
+            return;
+        }
+
+        bool leftStillThere = run.coordinateToHandle.ContainsKey(location.coordinate - 1);
+        bool rightStillThere = run.coordinateToHandle.ContainsKey(location.coordinate + 1);
+
+        // Both sides still present after removing the middle tile means an interior gap
+        // was just created - the run must split into two contiguous pieces.
+        if (leftStillThere && rightStillThere)
+        {
+            SplitRun(runId, location.coordinate);
+        }
+    }
+
+    #endregion
+
+    #region Add-Time Resolution (extend / merge / cap)
+
+    private int ResolveTargetRun(RunKey key, bool leftOccupied, int leftRunId, bool rightOccupied, int rightRunId)
+    {
+        if (!leftOccupied && !rightOccupied)
+            return CreateRun(key);
+
+        if (leftOccupied && !rightOccupied)
+            return HasRoom(leftRunId) ? leftRunId : CreateRun(key);
+
+        if (!leftOccupied && rightOccupied)
+            return HasRoom(rightRunId) ? rightRunId : CreateRun(key);
+
+        // Both neighbors occupied - by the contiguity invariant they must be two DIFFERENT
+        // runs (if they were the same run, this coordinate would already have been part of
+        // it, contradicting it being empty a moment ago).
+        return BridgeTwoRuns(leftRunId, rightRunId, key);
+    }
+
+    private bool HasRoom(int runId) => _runs[runId].coordinateToHandle.Count < _maxRunLength;
+
+    private int BridgeTwoRuns(int leftRunId, int rightRunId, RunKey key)
+    {
+        WallRun leftRun = _runs[leftRunId];
+        WallRun rightRun = _runs[rightRunId];
+
+        int combinedSize = leftRun.coordinateToHandle.Count + rightRun.coordinateToHandle.Count + 1;
+
+        if (combinedSize <= _maxRunLength)
+            return MergeRuns(leftRunId, rightRunId);
+
+        // Can't fully merge without breaking the cap - extend whichever side has room and
+        // leave the other run as a separate (still gap-free, still visually seamless) neighbor.
+        if (HasRoom(leftRunId))
+            return leftRunId;
+        if (HasRoom(rightRunId))
+            return rightRunId;
+
+        // Both sides are already at the cap - this tile becomes its own single-tile run,
+        // bridging them visually without merging their data.
+        return CreateRun(key);
+    }
+
+    private int MergeRuns(int survivingRunId, int absorbedRunId)
+    {
+        WallRun survivor = _runs[survivingRunId];
+        WallRun absorbed = _runs[absorbedRunId];
+
+        foreach (KeyValuePair<int, int> kvp in absorbed.coordinateToHandle)
+        {
+            int coord = kvp.Key;
+            int movedHandle = kvp.Value;
+
+            if (absorbed.meshChunk.TryGetEntry(movedHandle, out ChunkEntry entry))
+                survivor.meshChunk.AddEntry(movedHandle, entry);
+
+            survivor.coordinateToHandle[coord] = movedHandle;
+            _positionToRunId[(survivor.key, coord)] = survivingRunId;
+            _handleToPosition[movedHandle] = (survivor.key, coord);
+        }
+
+        absorbed.meshChunk.DestroySelf();
+        _runs.Remove(absorbedRunId);
+        _dirtyRuns.Remove(absorbedRunId);
+
+        MarkDirty(survivingRunId);
+        return survivingRunId;
+    }
+
+    #endregion
+
+    #region Remove-Time Resolution (split)
+
+    /// <summary>
+    /// Splits a run at a just-removed interior coordinate: everything left of the gap stays
+    /// in the existing run/chunk, everything right of the gap moves into a brand new one.
+    /// </summary>
+    private void SplitRun(int runId, int gapCoordinate)
+    {
+        WallRun run = _runs[runId];
+
+        var rightCoordinates = new List<int>();
+        foreach (int coord in run.coordinateToHandle.Keys)
+        {
+            if (coord > gapCoordinate)
+                rightCoordinates.Add(coord);
+        }
+
+        if (rightCoordinates.Count == 0)
+            return;
+
+        int newRunId = CreateRun(run.key);
+        WallRun newRun = _runs[newRunId];
+
+        foreach (int coord in rightCoordinates)
+        {
+            int movedHandle = run.coordinateToHandle[coord];
+
+            if (run.meshChunk.TryGetEntry(movedHandle, out ChunkEntry entry))
+            {
+                run.meshChunk.RemoveEntry(movedHandle);
+                newRun.meshChunk.AddEntry(movedHandle, entry);
+            }
+
+            run.coordinateToHandle.Remove(coord);
+            newRun.coordinateToHandle[coord] = movedHandle;
+
+            _positionToRunId[(run.key, coord)] = newRunId;
+            _handleToPosition[movedHandle] = (newRun.key, coord);
+        }
+
+        MarkDirty(runId);
+        MarkDirty(newRunId);
+    }
+
+    #endregion
+
+    #region Run Bookkeeping
+
+    private int CreateRun(RunKey key)
+    {
+        int id = _nextRunId++;
+        Transform parent = _chunkParent != null ? _chunkParent : transform;
+        string debugName = $"WallRun_{id}_{key.rotation}_{key.lockedCoordinate}_{key.height}";
+        ColliderMode colliderMode = _generateColliders ? ColliderMode.AggregateBox : ColliderMode.None;
+
+        var run = new WallRun
+        {
+            key = key,
+            meshChunk = new Chunk(debugName, parent, colliderMode)
+        };
+
+        _runs[id] = run;
+        return id;
+    }
+
+    private void MarkDirty(int runId)
+    {
+        _dirtyRuns.Add(runId);
+    }
+
+    #endregion
+
+    #region Batched Rebuild
+
+    private void LateUpdate()
+    {
+        if (_dirtyRuns.Count == 0)
+            return;
+
+        foreach (int runId in _dirtyRuns)
+        {
+            if (_runs.TryGetValue(runId, out WallRun run))
+                run.meshChunk.Rebuild();
+        }
+
+        _dirtyRuns.Clear();
+    }
+
+    #endregion
+}

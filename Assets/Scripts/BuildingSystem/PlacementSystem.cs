@@ -108,14 +108,35 @@ public class PlacementSystem : MonoBehaviour
     // UpdateState (plain hover) each frame.
     private bool _isHolding = false;
 
-    private void Start()
+    /// <summary>
+    /// NAV BRIDGE INTEGRATION: initialized in Awake() rather than Start() so
+    /// that ANY other script's Start() - including BuildingNavBridge, which
+    /// needs to subscribe to these instances' occupancy events - is
+    /// guaranteed to see them already constructed. Unity guarantees every
+    /// Awake() in the scene completes before any Start() runs, so this
+    /// removes the dependency on script execution order entirely rather
+    /// than working around it.
+    /// </summary>
+    private void Awake()
     {
-        StopPlacement();
-        
-        // Initialize the three independent build layers
         _floorData = new();
         _furnitureData = new();
         _ceilingData = new();
+    }
+
+    /// <summary>
+    /// Read-only access to the three build layers, for systems that need to
+    /// observe placement/removal without participating in it - currently
+    /// BuildingNavBridge. Exposed here rather than handed out piecemeal so
+    /// there's a single, obvious integration point.
+    /// </summary>
+    public GridData FloorData => _floorData;
+    public GridData FurnitureData => _furnitureData;
+    public GridData CeilingData => _ceilingData;
+
+    private void Start()
+    {
+        StopPlacement();
     }
 
     #region Multi-Level Build Height Control

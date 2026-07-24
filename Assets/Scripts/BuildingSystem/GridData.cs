@@ -38,6 +38,18 @@ public class GridData
     private List<Vector3Int> _cachedPositionsList = new(16);
     private List<Edge> _cachedEdgesList = new(16);
 
+    /// <summary>
+    /// NAV BRIDGE INTEGRATION: fired once per individual cell/edge whenever
+    /// this GridData's occupancy changes, regardless of how many cells a
+    /// single object's footprint spans. GridData doesn't know or care that
+    /// these are consumed by pathfinding - it's just reporting on its own
+    /// state, the way any data model should. Any future consumer (minimap,
+    /// AI perception, save system) can subscribe to the same events without
+    /// GridData needing to change at all.
+    /// </summary>
+    public event Action<Vector3Int, bool> OnCellOccupancyChanged;
+    public event Action<Edge, bool> OnEdgeOccupancyChanged;
+
     #region Grid Object Placement
 
     public void AddObjectAt(Vector3Int gridPosition, List<Vector2Int> positionsFilled, int ID, int placedObjectIndex, GridRotation rotation)
@@ -50,6 +62,7 @@ public class GridData
             if (_placedObjects.ContainsKey(position))
                 throw new Exception($"Dictionary already contains this position {position}");
             _placedObjects[position] = data;
+            OnCellOccupancyChanged?.Invoke(position, true);
         }   
     }
 
@@ -161,6 +174,7 @@ public class GridData
         foreach (var pos in _placedObjects[gridPosition].occupiedPositions)
         {
             _placedObjects.Remove(pos);
+            OnCellOccupancyChanged?.Invoke(pos, false);
         }
     }
 
@@ -183,6 +197,7 @@ public class GridData
             if (_placedEdges.ContainsKey(edge))
                 throw new Exception($"Dictionary already contains this edge {edge}");
             _placedEdges[edge] = data;
+            OnEdgeOccupancyChanged?.Invoke(edge, true);
         } 
         
     }
@@ -311,6 +326,7 @@ public class GridData
         foreach (var e in _placedEdges[edge].occupiedEdges)
         {
             _placedEdges.Remove(e);
+            OnEdgeOccupancyChanged?.Invoke(e, false);
         }
     }
 

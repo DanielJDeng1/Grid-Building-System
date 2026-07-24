@@ -174,7 +174,8 @@ public class GridState : IBuildingState
         int index = _objectPlacer.PlaceObject(
             _database.objectsData[_selectedObjectIndex].prefab,
             _grid.CellToWorld(gridPosition),
-            _currentRotation
+            _currentRotation,
+            _database.objectsData[_selectedObjectIndex].buildType
         );
 
         _selectedData.AddObjectAt(
@@ -232,7 +233,7 @@ public class GridState : IBuildingState
                 }
 
                 Vector3 worldPosition = _grid.CellToWorld(cellPosition);
-                int newIndex = _objectPlacer.PlaceObject(selectedObject.prefab, worldPosition, _currentRotation);
+                int newIndex = _objectPlacer.PlaceObject(selectedObject.prefab, worldPosition, _currentRotation, selectedObject.buildType);
 
                 _selectedData.AddObjectAt(cellPosition, selectedObject.positionsFilled, selectedObject.ID, newIndex, _currentRotation);
             }
