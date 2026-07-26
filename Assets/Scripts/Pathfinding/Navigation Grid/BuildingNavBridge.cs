@@ -113,10 +113,28 @@ public class BuildingNavBridge : MonoBehaviour
     {
         Debug.Log($"[DEBUG][BuildingNavBridge] Edge occupancy changed: {edge.end1} <-> {edge.end2}, isNowOccupied={isNowOccupied}");
 
+        // Calculate wall orientation (X-axis vs Z-axis)
+        Vector3Int diff = edge.end2 - edge.end1;
+        
+        // Determine perpendicular offset direction
+        // If the wall spans along X, perpendicular axis is Z (and vice versa)
+        Vector3Int perp = (diff.x != 0) 
+            ? new Vector3Int(0, 0, 1) 
+            : new Vector3Int(1, 0, 0);
+
+        // Apply perpendicular blocking to both tiles touched by the edge in both forward & backward directions
+        ApplyOrClearEdgeObstacle(edge.end1, edge.end1 + perp, isNowOccupied);
+        ApplyOrClearEdgeObstacle(edge.end1, edge.end1 - perp, isNowOccupied);
+        ApplyOrClearEdgeObstacle(edge.end2, edge.end2 + perp, isNowOccupied);
+        ApplyOrClearEdgeObstacle(edge.end2, edge.end2 - perp, isNowOccupied);
+    }
+
+    private void ApplyOrClearEdgeObstacle(Vector3Int tileA, Vector3Int tileB, bool isNowOccupied)
+    {
         if (isNowOccupied)
-            _channel.RegisterEdgeObstacle(edge.end1, edge.end2);
+            _channel.RegisterEdgeObstacle(tileA, tileB);
         else
-            _channel.UnregisterEdgeObstacle(edge.end1, edge.end2);
+            _channel.UnregisterEdgeObstacle(tileA, tileB);
     }
 
     #endregion

@@ -184,7 +184,7 @@ public class EdgeState : IBuildingState
         // Position GameObject at grid cell world position
         Vector3 worldPosition = _grid.CellToWorld(gridPosition);
         
-        int index = _objectPlacer.PlaceEdge(edgeData.prefab, worldPosition, _currentRotation);
+        int index = _objectPlacer.PlaceEdge(edgeData.prefab, worldPosition, _currentRotation, edgeData.shouldChunk);
 
         _selectedData.AddEdgeAt(baseEdge, edgeData.positionsFilled, edgeData.ID, index, _currentRotation);
     }
@@ -269,7 +269,7 @@ public class EdgeState : IBuildingState
         }
 
         Vector3 worldPosition = _grid.CellToWorld(tilePosition);
-        int newIndex = _objectPlacer.PlaceEdge(edgeData.prefab, worldPosition, _currentRotation);
+        int newIndex = _objectPlacer.PlaceEdge(edgeData.prefab, worldPosition, _currentRotation, edgeData.shouldChunk);
 
         _selectedData.AddEdgeAt(baseEdge, edgeData.positionsFilled, edgeData.ID, newIndex, _currentRotation);
     }

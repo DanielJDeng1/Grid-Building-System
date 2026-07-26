@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: OrangeTest
+  m_Name: YellowGlowTest
   m_Shader: {fileID: 4800000, guid: 48e5d5caad1000847bdc1dda60972ee0, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -83,10 +83,9 @@ Material:
     m_Ints: []
     m_Floats:
     - _AddPrecomputedVelocity: 0
-    - _Alpha: 0.023
     - _AlphaClip: 0
     - _AlphaToMask: 0
-    - _AmbientGI: 0.2
+    - _AmbientGI: 0.5
     - _AmbientStrength: 1
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
@@ -100,15 +99,15 @@ Material:
     - _Cutoff: 0.5
     - _DetailAlbedoMapScale: 1
     - _DetailNormalMapScale: 1
-    - _DistortionSpeed: 0
-    - _DistortionStrength: 0
+    - _DistortionSpeed: 1
+    - _DistortionStrength: 0.02
     - _DitherScale: 4
     - _DitherStrength: 0.15
     - _DstBlend: 0
     - _DstBlendAlpha: 0
-    - _EmissionStrength: 3.31
+    - _EmissionStrength: 0
     - _EnableRim: 0
-    - _EntityMode: 0
+    - _EntityMode: 1
     - _EnvironmentReflections: 1
     - _GlossMapScale: 0
     - _Glossiness: 0
@@ -124,8 +123,8 @@ Material:
     - _QueueOffset: 0
     - _ReceiveShadows: 1
     - _RimIntensity: 0
-    - _RimPower: 1
-    - _RimStrength: 0
+    - _RimPower: 2
+    - _RimStrength: 0.2
     - _ShadowMultiplier: 0.45
     - _ShadowSmoothness: 0.05
     - _ShadowSteps: 2
@@ -144,12 +143,12 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 0.9245283, g: 0.6659428, b: 0.43086502, a: 1}
-    - _Color: {r: 0.9245283, g: 0.6659428, b: 0.430865, a: 1}
+    - _BaseColor: {r: 0.9706241, g: 1, b: 0, a: 1}
+    - _Color: {r: 0.95471686, g: 0.95471686, b: 0.95471686, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _EntityTint: {r: 0.39999998, g: 0.8, b: 1, a: 1}
     - _LightColor: {r: 1, g: 1, b: 1, a: 1}
-    - _MidColor: {r: 1, g: 1, b: 1, a: 1}
+    - _MidColor: {r: 0.65, g: 0.7, b: 0.75, a: 1}
     - _RimColor: {r: 1, g: 1, b: 1, a: 1}
     - _ShadowColor: {r: 0.54999995, g: 0.6, b: 0.68, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}

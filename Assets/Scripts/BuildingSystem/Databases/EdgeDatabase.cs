@@ -22,4 +22,8 @@ public class EdgeData
 
     [field: SerializeField] public ObjectBuildType buildType;
 
+    [field: SerializeField]
+    [field: Tooltip("If true, this edge type is mesh-chunked (combined into contiguous wall runs, no individual GameObject). If false, it's instantiated individually like Furniture - use this for doors, edge-mounted furniture, or anything else that needs its own GameObject identity rather than being merged into a wall run.")]
+    public bool shouldChunk = true;
+
 }

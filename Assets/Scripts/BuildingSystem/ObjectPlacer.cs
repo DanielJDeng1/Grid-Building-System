@@ -18,16 +18,20 @@ using System.Collections.Generic;
 /// and simplifies the object tracking system.
 /// 
 /// MESH CHUNKING:
-/// Floor grid objects and ALL edge objects (walls, fences, railings) are no longer
-/// instantiated as individual GameObjects.
+/// Floor grid objects are always chunked. Edge objects are chunked PER-TYPE, controlled by
+/// EdgeData.shouldChunk:
 ///   - Floor objects go to FloorChunkManager, which buckets them spatially (no contiguity
 ///     requirement - floors never need to be independently toggled).
-///   - Wall/edge objects go to WallChunkManager, which groups them by CONTIGUOUS STRAIGHT
-///     RUN instead of spatial bucket - this matters for future dynamic wall hiding, where a
-///     whole side of a room needs to be one toggleable visual unit. A square room's 4 walls
-///     are always 4 separate chunks, since contiguity never crosses an orientation change.
-/// Furniture and Ceiling objects are unaffected and still go through the free-list path
-/// below, since they need individual GameObject identity (scripts, physics, etc).
+///   - Edge objects with shouldChunk = true (walls, fences, railings) go to WallChunkManager,
+///     which groups them by CONTIGUOUS STRAIGHT RUN instead of spatial bucket - this matters
+///     for future dynamic wall hiding, where a whole side of a room needs to be one
+///     toggleable visual unit. A square room's 4 walls are always 4 separate chunks, since
+///     contiguity never crosses an orientation change.
+///   - Edge objects with shouldChunk = false (doors, edge-mounted furniture, anything needing
+///     its own GameObject identity) are instantiated individually via the same free-list path
+///     as Furniture/Ceiling.
+/// Furniture and Ceiling grid objects are always instantiated individually, since they need
+/// individual GameObject identity (scripts, physics, etc).
 /// 
 /// Handles returned from chunked placements are negative ints allocated via
 /// ChunkHandleRegistry, which also remembers which manager owns each handle - so
@@ -111,16 +115,35 @@ public class ObjectPlacer : MonoBehaviour
     /// Edge GameObjects are positioned at the grid integer coordinate (the pivot).
     /// Rotation is applied to the PARENT GameObject's transform, not individual children.
     /// </summary>
-    /// <param name="prefab">Edge GameObject prefab (NOT instantiated - see MESH CHUNKING note above)</param>
+    /// <param name="prefab">Edge GameObject prefab. Instantiated only if shouldChunk is false - see MESH CHUNKING note above.</param>
     /// <param name="position">World position of the edge (grid integer coordinate)</param>
     /// <param name="rotation">Edge rotation determining orientation</param>
-    /// <returns>Negative chunk-entry handle for later removal via RemoveEdgeAt</returns>
-    public int PlaceEdge(GameObject prefab, Vector3 position, EdgeRotation rotation)
+    /// <param name="shouldChunk">
+    /// From the edge's EdgeData. True (walls, fences, railings): routed to WallChunkManager,
+    /// no GameObject instantiated. False (doors, edge-mounted furniture, anything needing its
+    /// own GameObject identity): instantiated individually, same free-list path as Furniture.
+    /// </param>
+    /// <returns>Handle for later removal via RemoveEdgeAt - negative if chunked, non-negative if instantiated.</returns>
+    public int PlaceEdge(GameObject prefab, Vector3 position, EdgeRotation rotation, bool shouldChunk)
     {
-        // All edges (walls, fences, railings) are chunked by contiguous run - no GameObject
-        // is instantiated. WallChunkManager computes the world matrix internally since it
-        // needs the rotation to determine which axis the run extends along.
-        return _wallChunkManager.AddEntry(prefab, position, rotation);
+        if (shouldChunk)
+        {
+            // Chunked: walls, fences, railings - grouped by contiguous run, no GameObject
+            // instantiated. WallChunkManager computes the world matrix internally since it
+            // needs the rotation to determine which axis the run extends along.
+            return _wallChunkManager.AddEntry(prefab, position, rotation);
+        }
+
+        // Non-chunked: doors, edge-mounted furniture, or anything else needing individual
+        // GameObject identity (scripts, physics, animation). Mirrors the pre-chunking
+        // PlaceEdge behavior exactly - rotation applied to the whole instantiated object.
+        GameObject newObject = Instantiate(prefab);
+        newObject.transform.position = position;
+
+        float rotationAngle = rotation == EdgeRotation.Deg0 ? 0f : -90f;
+        newObject.transform.Rotate(Vector3.up, rotationAngle);
+
+        return AddToPlacementList(newObject);
     }
 
     #endregion

@@ -360,5 +360,8 @@ Shader "Custom/EntityDitherLitURP"
 
             ENDHLSL
         }
+        UsePass "Universal Render Pipeline/Lit/ShadowCaster"
+        UsePass "Universal Render Pipeline/Lit/DepthOnly"
+        UsePass "Universal Render Pipeline/Lit/DepthNormals"
     }
 }
