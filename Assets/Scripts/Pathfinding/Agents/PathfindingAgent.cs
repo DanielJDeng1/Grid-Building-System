@@ -73,7 +73,7 @@ public class PathfindingAgent : MonoBehaviour
     {
         _hasPendingRequest = false;
 
-        Debug.Log($"[DEBUG][PathfindingAgent] '{name}' HandlePathResult: status={result.Status}, raw waypoint count={result.Waypoints.Count}");
+        NavDebug.Log($"[PathfindingAgent] '{name}' HandlePathResult: status={result.Status}, raw waypoint count={result.Waypoints.Count}");
 
         if (result.Waypoints.Count == 0)
         {
@@ -82,14 +82,14 @@ public class PathfindingAgent : MonoBehaviour
         }
 
         List<Vector3Int> simplifiedCells = _postProcessor.SimplifyLineOfSight(result.Waypoints);
-        Debug.Log($"[DEBUG][PathfindingAgent] '{name}' after LOS simplify: {simplifiedCells.Count} cells: {string.Join(" -> ", simplifiedCells)}");
+        NavDebug.Log($"[PathfindingAgent] '{name}' after LOS simplify: {simplifiedCells.Count} cells: {string.Join(" -> ", simplifiedCells)}");
 
         var worldWaypoints = new List<Vector3>(simplifiedCells.Count);
         foreach (var cell in simplifiedCells)
             worldWaypoints.Add(_grid.CellToWorld(cell));
 
         List<Vector3> lanedWaypoints = _postProcessor.ApplyLaneOffset(worldWaypoints, _agentSeed, _laneOffsetRange);
-        Debug.Log($"[DEBUG][PathfindingAgent] '{name}' final world waypoints ({lanedWaypoints.Count}): {string.Join(" -> ", lanedWaypoints)}");
+        NavDebug.Log($"[PathfindingAgent] '{name}' final world waypoints ({lanedWaypoints.Count}): {string.Join(" -> ", lanedWaypoints)}");
 
         _motor.SetPath(lanedWaypoints);
 

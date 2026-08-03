@@ -45,12 +45,15 @@ public class AStarPathfinder : IPathfinder
         }
 
         bool confirmedReachable = _navGrid.IsReachable(start, goal);
+        NavDebug.Log($"[AStarPathfinder] FindPath {start} -> {goal}: region-graph confirmedReachable={confirmedReachable}");
 
         bool reachedGoal = RunSearch(start, goal, _settings.HeuristicWeight, _settings.Tier1ExpansionBudget, agentSeed, out Vector3Int bestNode);
+        NavDebug.Log($"[AStarPathfinder] Tier 1 reachedGoal={reachedGoal}");
 
         if (!reachedGoal && confirmedReachable)
         {
             reachedGoal = RunSearch(start, goal, _settings.Tier2HeuristicWeight, _settings.Tier2ExpansionBudget, agentSeed, out bestNode);
+            NavDebug.Log($"[AStarPathfinder] Tier 2 reachedGoal={reachedGoal}");
         }
 
         if (reachedGoal)
@@ -146,13 +149,30 @@ public class AStarPathfinder : IPathfinder
     /// with cardinal cost 1 and diagonal cost sqrt(2). Manhattan distance
     /// would underestimate less (over-explore) once diagonal moves exist.
     /// </summary>
+    /// <summary>
+    /// Octile distance in X/Z, plus a linear term for floor-height
+    /// difference. The height term is NOT a strict admissible lower bound
+    /// on actual NavLink traversal cost (a stair's real cost is often much
+    /// less than 1 per floor) - it's deliberately here anyway, consistent
+    /// with the project's existing "performance over pathfinding
+    /// perfection" stance (§8's weighted heuristic is already inadmissible
+    /// by design). Without SOME height term, two cells that share X/Z but
+    /// sit on different floors get a heuristic of exactly zero - the search
+    /// reads that as "already at the goal" and stops being pulled toward a
+    /// stairwell at all, which is what caused multi-floor requests to
+    /// exhaust Tier 1's budget wandering the wrong floor instead of
+    /// approaching a NavLink. Tier 2's reachability-gated fallback still
+    /// guarantees completion even where this estimate is inaccurate.
+    /// </summary>
     private static float Heuristic(Vector3Int a, Vector3Int b)
     {
         int dx = Mathf.Abs(a.x - b.x);
         int dz = Mathf.Abs(a.z - b.z);
+        int dy = Mathf.Abs(a.y - b.y);
         const float D = 1f;
         const float D2 = 1.41421356f;
-        return D * (dx + dz) + (D2 - 2f * D) * Mathf.Min(dx, dz);
+        float planar = D * (dx + dz) + (D2 - 2f * D) * Mathf.Min(dx, dz);
+        return planar + D * dy;
     }
 
     /// <summary>

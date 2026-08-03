@@ -140,17 +140,17 @@ public class EdgeState : IBuildingState
         PlaceSingle(gridPosition);
     }
 
+    /// <summary>
+    /// Updates the hover preview position. Since placement always overrides
+    /// whatever's already at this edge (see PlaceSingle/PlaceEdgeSegment),
+    /// there's no "invalid" position from a placement standpoint - always
+    /// show as valid, matching the drag-fill preview's behavior in OnHold.
+    /// </summary>
     public void UpdateState(Vector3Int gridPosition)
     {
         Edge baseEdge = CalculateBaseEdge(gridPosition, _currentRotation);
-        EdgeData edgeData = _database.edgeData[_selectedObjectIndex];
-        
-        // Check if placement is valid at this edge position
-        bool isValid = CheckPlacementValidity(baseEdge, edgeData.positionsFilled);
-        
-        // Update preview with position and validity feedback
         Vector3 worldPosition = _grid.CellToWorld(baseEdge.end1);
-        _previewSystem.UpdatePosition(worldPosition, isValid);
+        _previewSystem.UpdatePosition(worldPosition, true);
     }
 
     public void Rotate(Vector3Int gridPosition)
@@ -167,23 +167,31 @@ public class EdgeState : IBuildingState
     #region Helper Methods
 
     /// <summary>
-    /// Original single-cell placement logic, unchanged. Used directly for a
-    /// plain click, and as a safety fallback if the selected object's
-    /// footprint isn't drag-fill compatible (see PlaceRun).
+    /// Single-cell placement, used directly for a plain click, and as a safety
+    /// fallback if the selected object's footprint isn't drag-fill compatible
+    /// (see PlaceRun).
+    /// 
+    /// OVERRIDE: clears every existing edge structure occupying ANY edge this
+    /// placement's footprint would occupy - not just baseEdge - before
+    /// placing the new one. A multi-segment object's footprint can span
+    /// several edges, each potentially belonging to a DIFFERENT existing
+    /// structure; removing only baseEdge's occupant left those other
+    /// structures in place and caused AddEdgeAt to throw when it reached an
+    /// edge that was still occupied.
     /// </summary>
     private void PlaceSingle(Vector3Int gridPosition)
     {
         Edge baseEdge = CalculateBaseEdge(gridPosition, _currentRotation);
         EdgeData edgeData = _database.edgeData[_selectedObjectIndex];
 
-        bool placementValidity = CheckPlacementValidity(baseEdge, edgeData.positionsFilled);
+        List<int> removedIndices = _selectedData.ClearEdgesInFootprint(baseEdge, edgeData.positionsFilled, _currentRotation);
+        foreach (int removedIndex in removedIndices)
+        {
+            _objectPlacer.RemoveEdgeAt(removedIndex);
+        }
 
-        if (!placementValidity)
-            return;
-
-        // Position GameObject at grid cell world position
         Vector3 worldPosition = _grid.CellToWorld(gridPosition);
-        
+
         int index = _objectPlacer.PlaceEdge(edgeData.prefab, worldPosition, _currentRotation, edgeData.shouldChunk);
 
         _selectedData.AddEdgeAt(baseEdge, edgeData.positionsFilled, edgeData.ID, index, _currentRotation);
@@ -252,20 +260,20 @@ public class EdgeState : IBuildingState
     }
 
     /// <summary>
-    /// Places (or overrides) a single edge segment at the given tile position,
-    /// using the existing single-segment override pattern: look up any
-    /// existing occupant first, destroy and unregister it, then place new.
+    /// Places (or overrides) a single edge segment at the given tile position.
+    /// PlaceRun only ever calls this for single-segment footprints (see its
+    /// guard below), but this uses the same footprint-clearing override as
+    /// PlaceSingle for consistency rather than a separate baseEdge-only path.
     /// </summary>
     private void PlaceEdgeSegment(Vector3Int tilePosition)
     {
         Edge baseEdge = CalculateBaseEdge(tilePosition, _currentRotation);
         EdgeData edgeData = _database.edgeData[_selectedObjectIndex];
 
-        int existingIndex = _selectedData.GetEdgeRepresentationIndex(baseEdge);
-        if (existingIndex != -1)
+        List<int> removedIndices = _selectedData.ClearEdgesInFootprint(baseEdge, edgeData.positionsFilled, _currentRotation);
+        foreach (int removedIndex in removedIndices)
         {
-            _selectedData.RemoveEdgeAt(baseEdge);
-            _objectPlacer.RemoveEdgeAt(existingIndex);
+            _objectPlacer.RemoveEdgeAt(removedIndex);
         }
 
         Vector3 worldPosition = _grid.CellToWorld(tilePosition);
@@ -351,11 +359,6 @@ public class EdgeState : IBuildingState
                     new Vector3Int(tilePosition.x + 1, tilePosition.y, tilePosition.z)
                 );
         }
-    }
-
-    private bool CheckPlacementValidity(Edge baseEdge, List<int> positionsFilled)
-    {
-        return _selectedData.CanPlaceEdgeAt(baseEdge, positionsFilled, _currentRotation);
     }
 
     private GridData GetSelectedData(int selectedObjectIndex)

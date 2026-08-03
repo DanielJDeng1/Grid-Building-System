@@ -30,5 +30,7 @@ public enum ObjectBuildType
 {
     Floor,
     Furniture,
-    Ceiling
+    Ceiling,
+
+    CeilingFurniture
 }

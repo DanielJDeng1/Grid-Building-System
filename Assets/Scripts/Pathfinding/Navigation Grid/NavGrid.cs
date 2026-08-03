@@ -94,6 +94,13 @@ public class NavGrid : IDisposable
         if (bidirectional)
             AddLink(cellB, cellA, cost);
 
+        bool floorAExists = GetFloorOrNull(cellA.y) != null;
+        bool floorBExists = GetFloorOrNull(cellB.y) != null;
+        NavDebug.Log($"[NavGrid] HandleNavLinkRegistered({id}): {cellA}(floor exists={floorAExists}) <-> " +
+                  $"{cellB}(floor exists={floorBExists}). If either is false, that floor's NavFloor hasn't been " +
+                  $"created yet (no cell there has ever gone through ProcessDirtyChunks), and region-graph " +
+                  $"reattachment for that side will silently no-op until something else dirties that floor.");
+
         _regionGraph.RegisterNavLink(id, cellA, cellB);
     }
 
@@ -187,7 +194,7 @@ public class NavGrid : IDisposable
 
                 if (blockedEast || blockedWest || blockedNorth || blockedSouth)
                 {
-                    Debug.Log($"[DEBUG][NavGrid] RebuildChunkFlags: cell {cell} edge flags -> " +
+                    NavDebug.Log($"[NavGrid] RebuildChunkFlags: cell {cell} edge flags -> " +
                               $"E={blockedEast} W={blockedWest} N={blockedNorth} S={blockedSouth}");
                 }
 
@@ -233,7 +240,7 @@ public class NavGrid : IDisposable
         bool blocked = directionFlag != 0 && chunk.IsCardinalEdgeBlocked(lx, lz, directionFlag);
 
         if (blocked)
-            Debug.Log($"[DEBUG][NavGrid] CanTraverseCardinal({a} -> {b}) BLOCKED by edge flag {directionFlag}");
+            NavDebug.Log($"[NavGrid] CanTraverseCardinal({a} -> {b}) BLOCKED by edge flag {directionFlag}");
 
         return directionFlag != 0 && !blocked;
     }

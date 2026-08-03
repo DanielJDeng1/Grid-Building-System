@@ -38,6 +38,21 @@ using UnityEngine;
 /// desired-velocity calculation in Update() below (a separate force,
 /// weighted-summed with the path-following force before acceleration is
 /// applied) - see the comment at that call site.
+/// 
+/// VERTICAL TRAVERSAL (stairs/elevators, Phase 2): horizontal movement force
+/// and the reach-check both remain XZ-only, for exactly the deadlock-safety
+/// reason above - that isn't touched. Vertical motion is handled by an
+/// entirely separate, decoupled channel (_pendingVerticalDelta / 
+/// ApplyPendingVerticalMovement) driven by the DELTA in Y between
+/// consecutive waypoints, not by chasing any waypoint's absolute Y. This
+/// matters: chasing an absolute target Y is exactly what caused the original
+/// deadlock (a waypoint's raw CellToWorld Y and the agent's real resting Y
+/// differ by a constant, unknown-to-this-class pivot offset). A same-floor
+/// waypoint transition has delta 0, so this channel does nothing and
+/// behavior there is byte-for-byte identical to before. A NavLink transition
+/// (stairs/elevator) has a real nonzero delta, which gets applied on top of
+/// whatever Y the agent already has - correct regardless of pivot offset,
+/// and it never needs to know what a "floor" or a "cell" is to do it.
 /// </summary>
 public class AgentMotor : MonoBehaviour
 {
@@ -51,19 +66,34 @@ public class AgentMotor : MonoBehaviour
     [Tooltip("Distance from the current waypoint at which FACING starts blending toward the next one, for smoother visual turning through corners. Does not affect movement target.")]
     [SerializeField] private float _lookAheadDistance = 0.75f;
 
+    [Header("Vertical Traversal (stairs/elevators)")]
+    [Tooltip("How fast the agent closes a pending vertical delta (world units/sec) when consecutive waypoints land on different floors. Independent of _moveSpeed - tune separately for how fast a climb should visually read.")]
+    [SerializeField] private float _verticalSpeed = 2f;
+
     private List<Vector3> _waypoints;
     private int _currentWaypointIndex;
     private Vector3 _currentVelocity;
     private float _lastDebugLogTime;
 
+    // Vertical traversal - see class-level "VERTICAL TRAVERSAL" note above.
+    // Deliberately NOT reset in ClearPath(): if the horizontal path finishes
+    // (or is replaced) before a climb has fully caught up, this keeps
+    // draining on its own afterward rather than leaving the agent stranded
+    // at a mid-climb height. Known edge case, not fully solved: replanning
+    // mid-climb (a new SetPath arriving while this is still nonzero) doesn't
+    // reset it either, so the old and new vertical obligations simply add -
+    // acceptable for V1 since it still converges to a correct final height,
+    // just not necessarily on the timeline either path alone implied.
+    private float _pendingVerticalDelta;
+
     public bool HasPath => _waypoints != null && _currentWaypointIndex < _waypoints.Count;
-    public bool IsMoving => _currentVelocity.sqrMagnitude > 0.0001f;
+    public bool IsMoving => _currentVelocity.sqrMagnitude > 0.0001f || !Mathf.Approximately(_pendingVerticalDelta, 0f);
 
     public void SetPath(List<Vector3> worldWaypoints)
     {
         _waypoints = worldWaypoints;
         _currentWaypointIndex = 0;
-        Debug.Log($"[DEBUG][AgentMotor] '{name}' SetPath received {worldWaypoints.Count} waypoints. " +
+        NavDebug.Log($"[AgentMotor] '{name}' SetPath received {worldWaypoints.Count} waypoints. " +
                   $"First: {(worldWaypoints.Count > 0 ? worldWaypoints[0].ToString() : "n/a")}, " +
                   $"Last: {(worldWaypoints.Count > 0 ? worldWaypoints[worldWaypoints.Count - 1].ToString() : "n/a")}, " +
                   $"current transform position: {transform.position}");
@@ -78,15 +108,17 @@ public class AgentMotor : MonoBehaviour
 
     private void Update()
     {
+        ApplyPendingVerticalMovement();
+
         if (!HasPath)
             return;
 
-        // TEMPORARY DIAGNOSTIC - throttled to twice a second to avoid
-        // flooding the console while still showing what's happening.
+        // Throttled to twice a second so it's still useful if NAV_DEBUG is
+        // ever re-enabled, without flooding the console.
         if (Time.time - _lastDebugLogTime > 0.5f)
         {
             _lastDebugLogTime = Time.time;
-            Debug.Log($"[DEBUG][AgentMotor] '{name}' Update: waypointIndex={_currentWaypointIndex}/{_waypoints.Count}, " +
+            NavDebug.Log($"[AgentMotor] '{name}' Update: waypointIndex={_currentWaypointIndex}/{_waypoints.Count}, " +
                       $"position={transform.position}, target={_waypoints[_currentWaypointIndex]}, " +
                       $"velocity={_currentVelocity}, distanceToTarget={HorizontalDistance(transform.position, _waypoints[_currentWaypointIndex]):F3}");
         }
@@ -161,9 +193,40 @@ public class AgentMotor : MonoBehaviour
             return;
 
         if (_currentWaypointIndex < _waypoints.Count - 1)
+        {
+            // The delta this new segment owes vertically - see class-level
+            // "VERTICAL TRAVERSAL" note. Zero for an ordinary same-floor
+            // step; nonzero exactly when this pair of waypoints straddles a
+            // NavLink (stairs/elevator), regardless of AgentMotor having no
+            // idea that's what it is.
+            float verticalDelta = _waypoints[_currentWaypointIndex + 1].y - _waypoints[_currentWaypointIndex].y;
+            _pendingVerticalDelta += verticalDelta;
             _currentWaypointIndex++;
+        }
         else
+        {
             ClearPath(); // reached the final destination
+        }
+    }
+
+    /// <summary>
+    /// Closes _pendingVerticalDelta at a constant rate, entirely independent
+    /// of the horizontal movement/reach-check system above. Runs every
+    /// frame regardless of HasPath, so a climb that's still catching up when
+    /// the horizontal path finishes keeps resolving on its own afterward
+    /// instead of leaving the agent stuck at a mid-climb height.
+    /// </summary>
+    private void ApplyPendingVerticalMovement()
+    {
+        if (Mathf.Approximately(_pendingVerticalDelta, 0f))
+            return;
+
+        float step = Mathf.Sign(_pendingVerticalDelta) * _verticalSpeed * Time.deltaTime;
+        if (Mathf.Abs(step) >= Mathf.Abs(_pendingVerticalDelta))
+            step = _pendingVerticalDelta;
+
+        transform.position += new Vector3(0f, step, 0f);
+        _pendingVerticalDelta -= step;
     }
 
     /// <summary>

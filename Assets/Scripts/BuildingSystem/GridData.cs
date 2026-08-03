@@ -330,6 +330,44 @@ public class GridData
         }
     }
 
+    /// <summary>
+    /// Removes every existing edge structure whose footprint overlaps ANY edge the given
+    /// baseEdge/positionsFilled/rotation would occupy - not just an existing occupant at
+    /// baseEdge itself.
+    /// 
+    /// WHY THIS EXISTS: a multi-segment placement (positionsFilled.Count > 1) can span several
+    /// edges, and each of those edges can belong to a DIFFERENT existing placed structure, not
+    /// just whatever (if anything) currently occupies baseEdge. Removing only baseEdge's
+    /// occupant before calling AddEdgeAt leaves those other structures in place, and AddEdgeAt
+    /// then throws when it reaches an edge that's still occupied. This clears the entire
+    /// footprint up front so the subsequent AddEdgeAt call is guaranteed to succeed.
+    /// 
+    /// Returns the distinct placedObjectIndex values that were removed, so the caller can also
+    /// clean up the corresponding visual entries (e.g. via ObjectPlacer.RemoveEdgeAt) - GridData
+    /// has no knowledge of ObjectPlacer, so it can't do that part itself.
+    /// </summary>
+    public List<int> ClearEdgesInFootprint(Edge baseEdge, List<int> positionsFilled, EdgeRotation rotation)
+    {
+        List<Edge> targetEdges = CalculateEdges(baseEdge, positionsFilled, rotation);
+        var removedIndices = new List<int>();
+
+        foreach (Edge edge in targetEdges)
+        {
+            int index = GetEdgeRepresentationIndex(edge);
+
+            // Already removed as part of a previously-found structure this pass (a single
+            // existing structure can occupy more than one of the new placement's target
+            // edges) - skip to avoid recording/removing the same index twice.
+            if (index == -1 || removedIndices.Contains(index))
+                continue;
+
+            removedIndices.Add(index);
+            RemoveEdgeAt(edge);
+        }
+
+        return removedIndices;
+    }
+
     #endregion
 }
 

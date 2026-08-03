@@ -35,6 +35,7 @@ public class GridState : IBuildingState
     private GridData _floorData;
     private GridData _furnitureData;
     private GridData _ceilingData;
+    private GridData _ceilingFurnitureData;
     private ObjectPlacer _objectPlacer;
     private GridData _selectedData;
 
@@ -45,7 +46,7 @@ public class GridState : IBuildingState
     private Vector3Int? _dragOrigin = null;
 
     public GridState(int ID, Grid grid, PreviewSystem previewSystem, ObjectDatabase database, 
-                    ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData)
+                    ObjectPlacer objectPlacer, GridData floorData, GridData furnitureData, GridData ceilingData, GridData ceilingFurnitureData)
     {
         _selectedObjectIndex = database.objectsData.FindIndex(data => data.ID == ID);
         
@@ -57,6 +58,7 @@ public class GridState : IBuildingState
         _floorData = floorData;
         _furnitureData = furnitureData;
         _ceilingData = ceilingData;
+        _ceilingFurnitureData = ceilingFurnitureData;
         _database = database;
         _ID = ID;
         _previewSystem = previewSystem;
@@ -268,6 +270,8 @@ public class GridState : IBuildingState
             selectedData = _furnitureData;
         else if (_database.objectsData[selectedObjectIndex].buildType == ObjectBuildType.Ceiling)
             selectedData = _ceilingData;
+        else if (_database.objectsData[selectedObjectIndex].buildType == ObjectBuildType.CeilingFurniture)
+            selectedData = _ceilingFurnitureData;
             
         return selectedData;
     }

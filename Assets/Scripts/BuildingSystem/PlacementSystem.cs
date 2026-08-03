@@ -77,6 +77,8 @@ public class PlacementSystem : MonoBehaviour
     [SerializeField] private GameObject _gridVisualization;
     [SerializeField] private ObjectPlacer _objectPlacer;
     [SerializeField] private PreviewSystem _previewSystem;
+    [Tooltip("Required for stair/elevator placement (TraversalState) - it needs INavObstacleChannel to register the NavLink at placement time.")]
+    [SerializeField] private NavigationService _navigationService;
 
     [Header("Multi-Level Building")]
     [SerializeField] private int _buildHeightIncrement = 3; // Y-units per floor level
@@ -94,6 +96,8 @@ public class PlacementSystem : MonoBehaviour
     private GridData _floorData;
     private GridData _furnitureData;
     private GridData _ceilingData;
+    private GridData _ceilingFurnitureData;
+    private GridData _traversalData;
 
     // NULLABLE FIX: Use nullable instead of sentinel value
     private Vector3Int? _lastDetectedPosition = null;
@@ -122,6 +126,8 @@ public class PlacementSystem : MonoBehaviour
         _floorData = new();
         _furnitureData = new();
         _ceilingData = new();
+        _ceilingFurnitureData = new();
+        _traversalData = new();
     }
 
     /// <summary>
@@ -133,6 +139,15 @@ public class PlacementSystem : MonoBehaviour
     public GridData FloorData => _floorData;
     public GridData FurnitureData => _furnitureData;
     public GridData CeilingData => _ceilingData;
+
+    /// <summary>
+    /// The stairs/elevators footprint layer. Deliberately NOT subscribed to
+    /// by BuildingNavBridge like the other three - TraversalState registers
+    /// its NavLink directly with INavObstacleChannel at placement time
+    /// (design doc §5), so routing this layer's occupancy events through the
+    /// generic translation path too would double-handle the same placement.
+    /// </summary>
+    public GridData TraversalData => _traversalData;
 
     private void Start()
     {
@@ -297,9 +312,55 @@ public class PlacementSystem : MonoBehaviour
             _objectPlacer, 
             _floorData, 
             _furnitureData, 
-            _ceilingData
+            _ceilingData,
+            _ceilingFurnitureData
         );
         
+        BindInputEvents();
+    }
+
+    /// <summary>
+    /// Activates stair/elevator placement mode (design doc §5). Same
+    /// ID-validation-before-transition safety pattern as StartPlacement.
+    /// 
+    /// KNOWN GAP: as noted on TraversalState itself, nothing here persists
+    /// the NavObstacleId TraversalState allocates on placement, which blocks
+    /// removal (a future StartTraversalRemoving/TraversalRemovalState) from
+    /// being able to call INavObstacleChannel.UnregisterNavLink. Flagging
+    /// again at the call site since this method will need to change once
+    /// that's resolved - most likely _traversalData or a small parallel
+    /// dictionary needs to start carrying the id.
+    /// </summary>
+    /// <param name="ID">Object ID from ObjectDatabase</param>
+    public void StartTraversalPlacement(int ID)
+    {
+        int objectIndex = _objectDatabase.objectsData.FindIndex(data => data.ID == ID);
+        if (objectIndex < 0)
+        {
+            Debug.LogError($"PlacementSystem: Cannot start traversal placement - no object with ID {ID} found in ObjectDatabase");
+            return;
+        }
+
+        if (_navigationService == null)
+        {
+            Debug.LogError("PlacementSystem: _navigationService must be assigned in the Inspector to place stairs/elevators.");
+            return;
+        }
+
+        StopPlacement();
+        _gridVisualization.SetActive(true);
+
+        _buildingState = new TraversalState(
+            ID,
+            _grid,
+            _previewSystem,
+            _objectDatabase,
+            _objectPlacer,
+            _traversalData,
+            _navigationService.ObstacleChannel,
+            _buildHeightIncrement
+        );
+
         BindInputEvents();
     }
 

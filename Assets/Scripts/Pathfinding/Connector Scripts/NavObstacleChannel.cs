@@ -80,7 +80,7 @@ public class NavObstacleChannel : INavObstacleChannel
         NavEdge edge = new NavEdge(cellA, cellB);
         _edgeObstacleRefCounts.TryGetValue(edge, out int count);
         _edgeObstacleRefCounts[edge] = count + 1;
-        Debug.Log($"[DEBUG][NavObstacleChannel] RegisterEdgeObstacle: {cellA} <-> {cellB}, refcount now {count + 1}");
+        NavDebug.Log($"[NavObstacleChannel] RegisterEdgeObstacle: {cellA} <-> {cellB}, refcount now {count + 1}");
         OnEdgeDirty?.Invoke(cellA, cellB);
     }
 
@@ -144,6 +144,7 @@ public class NavObstacleChannel : INavObstacleChannel
     public void RegisterNavLink(NavObstacleId id, Vector3Int cellA, Vector3Int cellB, float cost, bool bidirectional)
     {
         _navLinks[id] = new NavLinkRecord(cellA, cellB, cost, bidirectional);
+        NavDebug.Log($"[NavObstacleChannel] RegisterNavLink({id}): {cellA} <-> {cellB}, cost={cost}, bidirectional={bidirectional}");
         OnNavLinkRegistered?.Invoke(id, cellA, cellB, cost, bidirectional);
     }
 
@@ -168,7 +169,7 @@ public class NavObstacleChannel : INavObstacleChannel
 
         if (_edgeObstacleRefCounts.TryGetValue(edge, out int count) && count > 0)
         {
-            Debug.Log($"[DEBUG][NavObstacleChannel] IsEdgeBlocked({cellA}, {cellB}) = TRUE (refcount={count})");
+            NavDebug.Log($"[NavObstacleChannel] IsEdgeBlocked({cellA}, {cellB}) = TRUE (refcount={count})");
             return true;
         }
 

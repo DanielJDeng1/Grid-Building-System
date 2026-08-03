@@ -31,3 +31,9 @@ MonoBehaviour:
     ID: 2
     buildType: 0
     shouldChunk: 0
+  - name: Wall
+    positionsFilled: 00000000ffffffff
+    prefab: {fileID: 4793896007788827952, guid: 045cfb1c176ceaf4894b034b756184c0, type: 3}
+    ID: 3
+    buildType: 0
+    shouldChunk: 1

@@ -111,7 +111,7 @@ public class BuildingNavBridge : MonoBehaviour
 
     private void HandleEdgeOccupancyChanged(Edge edge, bool isNowOccupied)
     {
-        Debug.Log($"[DEBUG][BuildingNavBridge] Edge occupancy changed: {edge.end1} <-> {edge.end2}, isNowOccupied={isNowOccupied}");
+        NavDebug.Log($"[BuildingNavBridge] Edge occupancy changed: {edge.end1} <-> {edge.end2}, isNowOccupied={isNowOccupied}");
 
         // Calculate wall orientation (X-axis vs Z-axis)
         Vector3Int diff = edge.end2 - edge.end1;

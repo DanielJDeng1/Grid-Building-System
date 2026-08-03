@@ -67,8 +67,7 @@ public class PathRequestManager : MonoBehaviour
             AgentSeed = agentSeed,
             OnComplete = onComplete
         });
-        Debug.Log("request enqueued");
-
+        NavDebug.Log($"[PathRequestManager] Request enqueued: {start} -> {goal} (agentSeed={agentSeed}, queue depth={_pendingRequests.Count})");
     }
 
     private void LateUpdate()
@@ -81,7 +80,7 @@ public class PathRequestManager : MonoBehaviour
             PathRequest request = _pendingRequests.Dequeue();
             PathResult result = _pathfinder.FindPath(request.Start, request.Goal, request.AgentSeed);
             request.OnComplete?.Invoke(result);
-            Debug.Log(result.Waypoints.Count);
+            NavDebug.Log($"[PathRequestManager] Drained request, status={result.Status}, waypoints={result.Waypoints.Count}");
             processed++;
         }
     }

@@ -38,17 +38,23 @@ MonoBehaviour:
     - {x: 0, y: 0}
     prefab: {fileID: 7590343297513968773, guid: c073b4897633b5f44b80d985d7e71d26, type: 3}
     ID: 2
-    buildType: 1
+    buildType: 3
   - name: Furniture
     positionsFilled:
     - {x: 0, y: 0}
     - {x: -1, y: 0}
     prefab: {fileID: 1927320992012852779, guid: fb0d0b62f22c24d46a8d9846856af77d, type: 3}
     ID: 4
-    buildType: 1
+    buildType: 3
   - name: Furniture
     positionsFilled:
     - {x: 0, y: 0}
     prefab: {fileID: 21146417259945532, guid: 7c3e19952cf4a0c4db3c42dd44ed0a04, type: 3}
     ID: 5
     buildType: 0
+  - name: Elevator
+    positionsFilled:
+    - {x: 0, y: 0}
+    prefab: {fileID: 1495981623883154040, guid: f1d56489f2b75d3488a1413ad74bea4a, type: 3}
+    ID: 6
+    buildType: 1
