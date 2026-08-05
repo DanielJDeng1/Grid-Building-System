@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 515976790364574131}
   - component: {fileID: 8101321911550522913}
   - component: {fileID: 5915816720715672399}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Spot Light (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -141,7 +141,7 @@ GameObject:
   - component: {fileID: 8537829409573261435}
   - component: {fileID: 1321962932182392649}
   - component: {fileID: 8622789227185841947}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Cylinder
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -252,7 +252,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 3574187319111432511}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: LightPivot
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -287,7 +287,7 @@ GameObject:
   - component: {fileID: 3032979860605659842}
   - component: {fileID: 2633330772531222544}
   - component: {fileID: 2930655541414637085}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Sphere
   m_TagString: Untagged
   m_Icon: {fileID: 0}

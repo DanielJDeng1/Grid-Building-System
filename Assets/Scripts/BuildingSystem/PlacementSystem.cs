@@ -378,7 +378,8 @@ public class PlacementSystem : MonoBehaviour
             _objectPlacer, 
             _floorData, 
             _furnitureData, 
-            _ceilingData
+            _ceilingData,
+            _ceilingFurnitureData
         );
 
         BindInputEvents();

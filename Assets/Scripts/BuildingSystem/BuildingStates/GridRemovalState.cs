@@ -31,6 +31,7 @@ public class GridRemovalState : IBuildingState
     private GridData _floorData;
     private GridData _furnitureData;
     private GridData _ceilingData;
+    private GridData _ceilingFurnitureData;
     private ObjectPlacer _objectPlacer;
 
     private List<Vector2Int> _positionsToBeFilled;
@@ -39,7 +40,7 @@ public class GridRemovalState : IBuildingState
     private Vector3Int? _dragOrigin = null;
 
     public GridRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, 
-                           GridData floorData, GridData furnitureData, GridData ceilingData)
+                           GridData floorData, GridData furnitureData, GridData ceilingData, GridData ceilingFurnitureData)
     {
         _grid = grid;
         _previewSystem = previewSystem;
@@ -47,7 +48,7 @@ public class GridRemovalState : IBuildingState
         _floorData = floorData;
         _furnitureData = furnitureData;
         _ceilingData = ceilingData;
-        
+        _ceilingFurnitureData = ceilingFurnitureData;
         // Single-tile check for removal validation
         _positionsToBeFilled = new() { Vector2Int.zero };
 
@@ -176,7 +177,14 @@ public class GridRemovalState : IBuildingState
             int index = _floorData.GetRepresentationIndex(gridPosition);
             return (_floorData, index);
         }
-        
+
+        // Check ceiling furniture layer (second lowest priority)
+        if (!_ceilingFurnitureData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
+        {
+            int index = _ceilingFurnitureData.GetRepresentationIndex(gridPosition);
+            return (_ceilingFurnitureData, index);
+        }
+
         // Check ceiling layer (lowest priority)
         if (!_ceilingData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
         {
