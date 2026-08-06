@@ -22,12 +22,24 @@ using UnityEngine;
 /// 
 /// Edge Rotation Mapping (relative to mouse-hovered tile at position (x, y, z)):
 /// - Deg0 (Horizontal): Edge from (x, y, z) to (x+1, y, z) along positive X-axis - 0° rotation
-/// - Deg90 (Vertical): Edge from (x, y, z) to (x, y, z-1) along negative Z-axis - 90° rotation
+/// - Deg90 (Vertical): Edge from (x, y, z) to (x, y, z+1) along positive Z-axis - 90° rotation
 /// 
 /// Multi-Edge Example:
 /// If positionsFilled = {0, 1} for a 2-unit wall at tile (0, 0, 0):
 /// - Deg0: Edges [(0,0,0)-(1,0,0)] and [(1,0,0)-(2,0,0)] - extends horizontally along positive X-axis
-/// - Deg90: Edges [(0,0,0)-(0,0,-1)] and [(0,0,-1)-(0,0,-2)] - extends vertically along negative Z-axis
+/// - Deg90: Edges [(0,0,0)-(0,0,1)] and [(0,0,1)-(0,0,2)] - extends vertically along positive Z-axis
+/// 
+/// OBJECT/EDGE INTERSECTION RULES:
+/// The wall prefab's pivot sits at a grid position and its mesh extends +1 unit along
+/// X at that same Z - so an edge's own endpoint coordinates are NOT the two cells it
+/// runs between. An X-oriented edge (x,z)-(x+1,z) is a wall on the boundary between
+/// cell (x, z-1) [south] and cell (x, z) [north]; a Z-oriented edge (x,z)-(x,z+1) is a
+/// wall between cell (x-1, z) [west] and cell (x, z) [east]. A wall is "around" an
+/// object (allowed) when those two bordered cells belong to different objects, or one/
+/// both are empty. A wall "cuts through" an object (disallowed) only when BOTH bordered
+/// cells belong to the SAME object - meaning the wall runs across that object's own
+/// interior seam. Symmetrically, an object can't be placed if the wall sitting on the
+/// seam between two of its own would-be footprint cells already exists.
 /// </summary>
 public class GridData
 {
@@ -116,6 +128,10 @@ public class GridData
     /// PERFORMANCE FIX: Uses cached list for zero-allocation validation checks.
     /// MULTI-LEVEL FIX: Preserves Y-coordinate for correct collision detection at different heights.
     /// Called every frame during UpdateState(), so must be allocation-free.
+    /// 
+    /// INTERSECTION FIX: Also rejects placement if any already-placed edge has both of
+    /// its endpoints within the proposed footprint - such an edge would end up running
+    /// through the interior of the new object rather than around it.
     /// </summary>
     public bool CanPlaceObjectAt(Vector3Int gridPosition, List<Vector2Int> positionsFilled, GridRotation rotation)
     {
@@ -155,7 +171,50 @@ public class GridData
             if (_placedObjects.ContainsKey(pos) && _placedObjects[pos] != null)
                 return false;
         }
+
+        if (FootprintContainsInteriorEdge(_cachedPositionsList))
+            return false;
+
         return true;
+    }
+
+    /// <summary>
+    /// Checks whether any already-placed edge sits on the shared boundary between two
+    /// cells that are BOTH part of the given footprint.
+    /// 
+    /// GEOMETRY: the wall prefab's pivot sits at a grid position and the mesh extends
+    /// +1 unit along X at that same Z - so an X-oriented edge (x,z)-(x+1,z) is a wall
+    /// along the boundary between row z and row z-1, NOT a wall running between the
+    /// X-adjacent cells (x,z) and (x+1,z). The actual seam between two X-adjacent cells
+    /// (x,z) and (x+1,z) is the Z-oriented edge one column over: (x+1,z)-(x+1,z+1).
+    /// Symmetrically, the seam between two Z-adjacent cells (x,z) and (x,z+1) is the
+    /// X-oriented edge one row over: (x,z+1)-(x+1,z+1).
+    /// </summary>
+    private bool FootprintContainsInteriorEdge(List<Vector3Int> footprintPositions)
+    {
+        foreach (var pos in footprintPositions)
+        {
+            // X-adjacent neighbor: the seam between pos and xNeighbor is the
+            // Z-oriented edge at X = pos.x + 1.
+            Vector3Int xNeighbor = pos + new Vector3Int(1, 0, 0);
+            if (footprintPositions.Contains(xNeighbor))
+            {
+                Edge candidate = new Edge(xNeighbor, xNeighbor + new Vector3Int(0, 0, 1));
+                if (_placedEdges.ContainsKey(candidate))
+                    return true;
+            }
+
+            // Z-adjacent neighbor: the seam between pos and zNeighbor is the
+            // X-oriented edge at Z = pos.z + 1.
+            Vector3Int zNeighbor = pos + new Vector3Int(0, 0, 1);
+            if (footprintPositions.Contains(zNeighbor))
+            {
+                Edge candidate = new Edge(zNeighbor, zNeighbor + new Vector3Int(1, 0, 0));
+                if (_placedEdges.ContainsKey(candidate))
+                    return true;
+            }
+        }
+        return false;
     }
     
     public int GetRepresentationIndex(Vector3Int gridPosition)
@@ -209,8 +268,8 @@ public class GridData
     /// PERFORMANCE FIX: Uses cached list to eliminate GC allocation.
     /// 
     /// Algorithm:
-    /// - Deg0: Extends horizontally along positive X-axis
-    /// - Deg90: Extends vertically along negative Z-axis
+    /// - Deg0: Extends along positive X-axis (wall runs parallel to X)
+    /// - Deg90: Extends along positive Z-axis (wall runs parallel to Z)
     /// 
     /// Each integer in positionsFilled represents an edge segment offset from base position.
     /// The base edge's end1 is used as the reference tile position (the pivot).
@@ -224,7 +283,7 @@ public class GridData
         switch (rotation)
         {
             case EdgeRotation.Deg0:
-                // Horizontal edges along positive X-axis
+                // Wall runs along positive X-axis.
                 // Base edge: (x, y, z) to (x+1, y, z)
                 foreach (int offset in positionsFilled)
                 {
@@ -238,14 +297,7 @@ public class GridData
                 break;
                 
             case EdgeRotation.Deg90:
-                // BUG FIX: previously used `-offset` and extended backward
-                // (tilePos to tilePos-1), which produces a REFLECTED shape for
-                // asymmetric positionsFilled rather than a true 90 degree
-                // rotation (verified numerically - see conversation). Now
-                // extends forward (+Z), structurally identical to Deg0 just
-                // on the Z axis, so offset o always maps to interval [o, o+1]
-                // on whichever axis is active, matching how the mesh actually
-                // rotates visually.
+                // Wall runs along positive Z-axis.
                 // Base edge: (x, y, z) to (x, y, z+1)
                 foreach (int offset in positionsFilled)
                 {
@@ -264,8 +316,18 @@ public class GridData
     }
 
     /// <summary>
+    /// STRICT validity check: true only if every candidate edge is both (a) not already
+    /// occupied by another edge structure, AND (b) doesn't cut through an object's body.
+    /// This is the "no override" version - useful for callers that want a hard yes/no with
+    /// no side effects. EdgeState does NOT use this for its actual placement gating, since
+    /// edge-vs-edge placement is designed to override (see ClearEdgesInFootprint) rather
+    /// than reject - it uses WouldEdgeIntersectObject instead, which ignores existing edge
+    /// occupancy entirely and only cares about objects.
+    /// 
     /// PERFORMANCE FIX: Uses cached list for zero-allocation validation checks.
     /// MULTI-LEVEL FIX: Preserves Y-coordinate for correct collision detection at different heights.
+    /// 
+    /// AXIS: matches CalculateEdges - Deg0 extends along X, Deg90 extends along Z.
     /// </summary>
     public bool CanPlaceEdgeAt(Edge baseEdge, List<int> positionsFilled, EdgeRotation rotation)
     {
@@ -276,6 +338,7 @@ public class GridData
         switch (rotation)
         {
             case EdgeRotation.Deg0:
+                // Wall runs along positive X-axis.
                 foreach (int offset in positionsFilled)
                 {
                     Vector3Int tilePos = baseTile + new Vector3Int(offset, 0, 0);
@@ -288,8 +351,7 @@ public class GridData
                 break;
                 
             case EdgeRotation.Deg90:
-                // BUG FIX: see CalculateEdges above - matches the same
-                // forward-extending (+Z) convention now.
+                // Wall runs along positive Z-axis.
                 foreach (int offset in positionsFilled)
                 {
                     Vector3Int tilePos = baseTile + new Vector3Int(0, 0, offset);
@@ -306,8 +368,72 @@ public class GridData
         {
             if (_placedEdges.ContainsKey(edge) && _placedEdges[edge] != null)
                 return false;
+
+            if (EdgeCutsThroughObjectBody(edge))
+                return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// OVERRIDE-AWARE validity check: true if the proposed edge placement would cut
+    /// through an object's body. Deliberately ignores whether the edges are already
+    /// occupied by another edge structure - edge-vs-edge overlap is expected to be
+    /// resolved by clearing/overriding (ClearEdgesInFootprint), not by rejecting the
+    /// placement. This is what EdgeState should call before placing/overriding an edge.
+    /// </summary>
+    public bool WouldEdgeIntersectObject(Edge baseEdge, List<int> positionsFilled, EdgeRotation rotation)
+    {
+        List<Edge> candidateEdges = CalculateEdges(baseEdge, positionsFilled, rotation);
+
+        foreach (var edge in candidateEdges)
+        {
+            if (EdgeCutsThroughObjectBody(edge))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True if the two cells this wall physically separates are BOTH occupied by the
+    /// SAME placed object, meaning the wall would cut through that object's interior.
+    /// 
+    /// GEOMETRY: the wall prefab's pivot sits at a grid position and its mesh extends
+    /// +1 unit along X at that same Z, so the edge's own endpoint coordinates are NOT
+    /// the two cells it runs between - an X-oriented edge (x,z)-(x+1,z) is a wall on
+    /// the boundary between cell (x, z-1) [south] and cell (x, z) [north]. Symmetrically
+    /// a Z-oriented edge (x,z)-(x,z+1) borders cell (x-1, z) [west] and cell (x, z) [east].
+    /// Two DIFFERENT objects on either side (or empty space on one/both sides) is a
+    /// normal perimeter/boundary wall and returns false.
+    /// </summary>
+    private bool EdgeCutsThroughObjectBody(Edge edge)
+    {
+        Vector3Int cellA;
+        Vector3Int cellB;
+
+        if (edge.end1.x != edge.end2.x)
+        {
+            // X-oriented wall: separates the row south of it from the row north of it.
+            int ex = Mathf.Min(edge.end1.x, edge.end2.x);
+            int ez = edge.end1.z; // both endpoints share Z on an X-oriented edge
+            cellA = new Vector3Int(ex, edge.end1.y, ez - 1); // south
+            cellB = new Vector3Int(ex, edge.end1.y, ez);     // north
+        }
+        else
+        {
+            // Z-oriented wall: separates the column west of it from the column east of it.
+            int ez = Mathf.Min(edge.end1.z, edge.end2.z);
+            int ex = edge.end1.x; // both endpoints share X on a Z-oriented edge
+            cellA = new Vector3Int(ex - 1, edge.end1.y, ez); // west
+            cellB = new Vector3Int(ex, edge.end1.y, ez);     // east
+        }
+
+        if (_placedObjects.TryGetValue(cellA, out PlacedObject objA) &&
+            _placedObjects.TryGetValue(cellB, out PlacedObject objB))
+        {
+            return ReferenceEquals(objA, objB);
+        }
+        return false;
     }
 
     public int GetEdgeRepresentationIndex(Edge edge)

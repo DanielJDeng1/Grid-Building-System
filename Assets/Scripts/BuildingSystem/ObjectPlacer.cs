@@ -108,12 +108,27 @@ public class ObjectPlacer : MonoBehaviour
     /// <summary>
     /// Places an edge object (wall, fence, railing) at the specified position with rotation.
     /// 
-    /// EDGE ROTATION BEHAVIOR (CORRECTED):
+    /// EDGE ROTATION BEHAVIOR:
     /// - Deg0: 0° rotation (horizontal alignment along positive X-axis)
-    /// - Deg90: -90° rotation (vertical alignment along negative Z-axis)
+    /// - Deg90: 90° rotation (vertical alignment along positive Z-axis)
     /// 
     /// Edge GameObjects are positioned at the grid integer coordinate (the pivot).
-    /// Rotation is applied to the PARENT GameObject's transform, not individual children.
+    /// 
+    /// ROTATION FIX: each child is rotated around a pivot derived from that child's
+    /// OWN local X offset (position.x + child.localPosition.x, applied to both the
+    /// pivot's X and Z), not a fixed tile-center constant. Edge prefabs commonly have
+    /// their visual mesh offset from the pivot along local X by half the object's
+    /// total length - e.g. a 1-tile wall sits at local x = 0.5, a 2-tile wall at
+    /// local x = 1.0, matching how GridData.CalculateEdges lays out multi-segment
+    /// edges (positionsFilled.Count segments spanning that many tiles from the base
+    /// position). A fixed 0.5 pivot only happens to be correct for a 1-tile wall;
+    /// for any other length it rotates around the wrong point and the mesh lands a
+    /// tile (or more) away from where the logical edge coordinates say it should.
+    /// Deriving the pivot from the child's own offset generalizes correctly to any
+    /// wall length without ObjectPlacer needing to know positionsFilled.Count at all.
+    /// This assumes the standard authoring convention: the mesh lies flat at local
+    /// Z = 0 (only its local X offset is meaningful for this calculation) - a child
+    /// authored with its own Z offset would need different handling.
     /// </summary>
     /// <param name="prefab">Edge GameObject prefab. Instantiated only if shouldChunk is false - see MESH CHUNKING note above.</param>
     /// <param name="position">World position of the edge (grid integer coordinate)</param>
@@ -135,13 +150,22 @@ public class ObjectPlacer : MonoBehaviour
         }
 
         // Non-chunked: doors, edge-mounted furniture, or anything else needing individual
-        // GameObject identity (scripts, physics, animation). Mirrors the pre-chunking
-        // PlaceEdge behavior exactly - rotation applied to the whole instantiated object.
+        // GameObject identity (scripts, physics, animation).
         GameObject newObject = Instantiate(prefab);
         newObject.transform.position = position;
 
-        float rotationAngle = rotation == EdgeRotation.Deg0 ? 0f : -90f;
-        newObject.transform.Rotate(Vector3.up, rotationAngle);
+        if (rotation == EdgeRotation.Deg90)
+        {
+            // Rotate each child around a pivot derived from ITS OWN local X offset -
+            // see ROTATION FIX note above. Skipped entirely for Deg0 since that's
+            // the prefab's authored (unrotated) orientation already.
+            foreach (Transform child in newObject.transform)
+            {
+                float pivotOffset = child.localPosition.x;
+                Vector3 pivot = new Vector3(position.x + pivotOffset, position.y, position.z + pivotOffset);
+                child.transform.RotateAround(pivot, Vector3.up, 90f);
+            }
+        }
 
         return AddToPlacementList(newObject);
     }

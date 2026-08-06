@@ -24,6 +24,16 @@ using System.Collections.Generic;
 /// object doesn't have one, it logs a warning and falls back to a single
 /// placement rather than producing overlapping/undefined segments.
 /// 
+/// VALIDITY (OBJECT INTERSECTION):
+/// Unlike the "always valid, override whatever's there" model used for
+/// edge-vs-edge overlap, an edge is NOT free to cut through the body of an
+/// already-placed object. Every placement path (single click, drag run, and
+/// the preview shown in UpdateState/OnHold) checks GridData.WouldEdgeIntersectObject
+/// before committing or reporting a segment as valid. This check deliberately
+/// ignores existing edge occupancy - edge-vs-edge overlap on the same layer is
+/// still fully handled by the override/clear behavior (ClearEdgesInFootprint)
+/// below; only edge-vs-object intersection is a hard rejection.
+/// 
 /// MULTI-LEVEL:
 /// The run always uses the CURRENT build height at commit time (not the height
 /// active when the drag started), consistent with GridState/GridRemovalState.
@@ -95,8 +105,10 @@ public class EdgeState : IBuildingState
 
     /// <summary>
     /// Called every frame while the mouse button is held. Axis-locks the
-    /// current position against the drag origin (per _currentRotation) and
-    /// updates the rectangle bounds preview.
+    /// current position against the drag origin (per _currentRotation),
+    /// checks whether every segment along that run is actually placeable
+    /// (no object intersections), and updates the rectangle bounds preview
+    /// with that validity.
     /// </summary>
     public void OnHold(Vector3Int gridPosition)
     {
@@ -106,9 +118,8 @@ public class EdgeState : IBuildingState
         Vector3Int lockedCurrent = GetAxisLockedPosition(_dragOrigin.Value, gridPosition);
         Vector3 worldPosition = _grid.CellToWorld(lockedCurrent);
 
-        // Override system: drag placement always replaces whatever is on this
-        // layer, so there's no "invalid" run - always show as valid.
-        _previewSystem.UpdatePosition(worldPosition, true);
+        bool isValid = !IsRunBlockedByObject(_dragOrigin.Value, lockedCurrent);
+        _previewSystem.UpdatePosition(worldPosition, isValid);
     }
 
     /// <summary>
@@ -141,16 +152,21 @@ public class EdgeState : IBuildingState
     }
 
     /// <summary>
-    /// Updates the hover preview position. Since placement always overrides
-    /// whatever's already at this edge (see PlaceSingle/PlaceEdgeSegment),
-    /// there's no "invalid" position from a placement standpoint - always
-    /// show as valid, matching the drag-fill preview's behavior in OnHold.
+    /// Updates the hover preview position. Edge-vs-edge overlap is still
+    /// always "valid" (placement overrides whatever edge is already there -
+    /// see PlaceSingle/PlaceEdgeSegment), but edge-vs-object intersection is
+    /// a real rejection, so the preview now reflects GridData.WouldEdgeIntersectObject
+    /// instead of unconditionally reporting true.
     /// </summary>
     public void UpdateState(Vector3Int gridPosition)
     {
         Edge baseEdge = CalculateBaseEdge(gridPosition, _currentRotation);
+        EdgeData edgeData = _database.edgeData[_selectedObjectIndex];
+
+        bool isValid = !_selectedData.WouldEdgeIntersectObject(baseEdge, edgeData.positionsFilled, _currentRotation);
+
         Vector3 worldPosition = _grid.CellToWorld(baseEdge.end1);
-        _previewSystem.UpdatePosition(worldPosition, true);
+        _previewSystem.UpdatePosition(worldPosition, isValid);
     }
 
     public void Rotate(Vector3Int gridPosition)
@@ -171,6 +187,11 @@ public class EdgeState : IBuildingState
     /// fallback if the selected object's footprint isn't drag-fill compatible
     /// (see PlaceRun).
     /// 
+    /// VALIDITY: rejects the placement entirely if any segment the object's
+    /// footprint would occupy cuts through an already-placed object's body.
+    /// This check happens BEFORE clearing existing edges, so an invalid
+    /// placement leaves the board completely untouched.
+    /// 
     /// OVERRIDE: clears every existing edge structure occupying ANY edge this
     /// placement's footprint would occupy - not just baseEdge - before
     /// placing the new one. A multi-segment object's footprint can span
@@ -183,6 +204,9 @@ public class EdgeState : IBuildingState
     {
         Edge baseEdge = CalculateBaseEdge(gridPosition, _currentRotation);
         EdgeData edgeData = _database.edgeData[_selectedObjectIndex];
+
+        if (_selectedData.WouldEdgeIntersectObject(baseEdge, edgeData.positionsFilled, _currentRotation))
+            return;
 
         List<int> removedIndices = _selectedData.ClearEdgesInFootprint(baseEdge, edgeData.positionsFilled, _currentRotation);
         foreach (int removedIndex in removedIndices)
@@ -201,6 +225,10 @@ public class EdgeState : IBuildingState
     /// Places one instance of the selected edge object per tile step along the
     /// straight run bounded by origin and current (already axis-locked by the
     /// caller), overriding any existing edge on this layer at each segment.
+    /// Each segment is validated independently by PlaceEdgeSegment/PlaceSingle,
+    /// so a run that clips an object's body simply skips that one segment
+    /// rather than rejecting the whole run - consistent with the per-cell
+    /// override model used elsewhere.
     /// 
     /// ASSUMPTION: the selected object has a single-segment footprint
     /// (positionsFilled == { 0 }). If it doesn't, a tiled run would produce
@@ -229,10 +257,6 @@ public class EdgeState : IBuildingState
             int maxX = Mathf.Max(origin.x, current.x);
             int z = origin.z;
 
-            // BUG FIX: previously looped x < maxX (exclusive), which always
-            // skipped the higher-coordinate tile regardless of which end was
-            // origin vs current - so depending on drag direction, either the
-            // first or last tile you dragged over silently got no segment.
             // Inclusive on both ends places one segment per tile touched,
             // exactly as if each tile had been clicked individually.
             for (int x = minX; x <= maxX; x++)
@@ -246,12 +270,6 @@ public class EdgeState : IBuildingState
             int maxZ = Mathf.Max(origin.z, current.z);
             int x = origin.x;
 
-            // BUG FIX: previously looped from (minZ + 1) (exclusive of minZ),
-            // which always skipped the lower-coordinate tile - the opposite
-            // end from the Deg0 bug above, which is exactly why the missing
-            // edge appeared on "the first or last position depending on
-            // direction/rotation." Inclusive on both ends fixes it the same
-            // way as Deg0.
             for (int z = minZ; z <= maxZ; z++)
             {
                 PlaceEdgeSegment(new Vector3Int(x, height, z));
@@ -262,13 +280,20 @@ public class EdgeState : IBuildingState
     /// <summary>
     /// Places (or overrides) a single edge segment at the given tile position.
     /// PlaceRun only ever calls this for single-segment footprints (see its
-    /// guard below), but this uses the same footprint-clearing override as
+    /// guard above), but this uses the same footprint-clearing override as
     /// PlaceSingle for consistency rather than a separate baseEdge-only path.
+    /// 
+    /// VALIDITY: same object-intersection guard as PlaceSingle - if this
+    /// segment would cut through an object's body, it's skipped entirely
+    /// (existing edges at this segment, if any, are left untouched).
     /// </summary>
     private void PlaceEdgeSegment(Vector3Int tilePosition)
     {
         Edge baseEdge = CalculateBaseEdge(tilePosition, _currentRotation);
         EdgeData edgeData = _database.edgeData[_selectedObjectIndex];
+
+        if (_selectedData.WouldEdgeIntersectObject(baseEdge, edgeData.positionsFilled, _currentRotation))
+            return;
 
         List<int> removedIndices = _selectedData.ClearEdgesInFootprint(baseEdge, edgeData.positionsFilled, _currentRotation);
         foreach (int removedIndex in removedIndices)
@@ -303,6 +328,50 @@ public class EdgeState : IBuildingState
     }
 
     /// <summary>
+    /// Checks whether ANY tile step along the axis-locked run from origin to
+    /// current would cut through an object's body. Used purely for preview
+    /// feedback in OnHold - performs no placement or mutation of GridData.
+    /// Mirrors PlaceRun's tile iteration exactly so the preview never
+    /// promises something the commit step would then skip. Uses
+    /// WouldEdgeIntersectObject (not CanPlaceEdgeAt) so existing edges along
+    /// the run don't get flagged as invalid - only object intersections do.
+    /// </summary>
+    private bool IsRunBlockedByObject(Vector3Int origin, Vector3Int current)
+    {
+        EdgeData edgeData = _database.edgeData[_selectedObjectIndex];
+        int height = current.y;
+
+        if (_currentRotation == EdgeRotation.Deg0)
+        {
+            int minX = Mathf.Min(origin.x, current.x);
+            int maxX = Mathf.Max(origin.x, current.x);
+            int z = origin.z;
+
+            for (int x = minX; x <= maxX; x++)
+            {
+                Edge segmentEdge = CalculateBaseEdge(new Vector3Int(x, height, z), _currentRotation);
+                if (_selectedData.WouldEdgeIntersectObject(segmentEdge, edgeData.positionsFilled, _currentRotation))
+                    return true;
+            }
+        }
+        else
+        {
+            int minZ = Mathf.Min(origin.z, current.z);
+            int maxZ = Mathf.Max(origin.z, current.z);
+            int x = origin.x;
+
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                Edge segmentEdge = CalculateBaseEdge(new Vector3Int(x, height, z), _currentRotation);
+                if (_selectedData.WouldEdgeIntersectObject(segmentEdge, edgeData.positionsFilled, _currentRotation))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Projects `current` onto the axis the drag is allowed to move along,
     /// locking the perpendicular coordinate to `origin`'s value. Deg0 runs
     /// extend along X (Z locked); Deg90 runs extend along Z (X locked).
@@ -322,18 +391,14 @@ public class EdgeState : IBuildingState
     /// 
     /// MULTI-LEVEL FIX: Now preserves tilePosition.y in all edge coordinates.
     /// 
-    /// BUG FIX: Deg90 previously extended BACKWARD (tilePosition to
-    /// tilePosition.z - 1), which was inconsistent with a true 90 degree
-    /// rotation for multi-segment (positionsFilled with more than one entry)
-    /// objects - verified numerically against an actual rotation of the mesh's
-    /// endpoints around the pivot. It now extends FORWARD, structurally
-    /// identical to Deg0 just on the Z axis, so offset o always maps to
-    /// interval [o, o+1] regardless of which axis is active. This also
-    /// shifts single-segment Deg90 placement by one tile compared to before.
+    /// The wall for an edge is parallel to the line between its two endpoints -
+    /// e.g. an edge from (x,z) to (x+1,z) is a wall running along X, not a
+    /// border perpendicular to that line. Deg0 and Deg90 pick which axis that
+    /// line (and therefore the wall) runs along.
     /// 
     /// Rotation Mapping:
-    /// - Deg0: Edge along positive X-axis from (x, y, z) to (x+1, y, z) - 0° rotation (points East)
-    /// - Deg90: Edge along positive Z-axis from (x, y, z) to (x, y, z+1) - -90° rotation (points North)
+    /// - Deg0: Edge along positive X-axis from (x, y, z) to (x+1, y, z) - 0° rotation
+    /// - Deg90: Edge along positive Z-axis from (x, y, z) to (x, y, z+1) - 90° rotation
     /// 
     /// The edge GameObject is positioned at end1 (the tile origin).
     /// </summary>
@@ -379,5 +444,5 @@ public class EdgeState : IBuildingState
 public enum EdgeRotation
 {
     Deg0,   // Horizontal alignment (X-axis / positive X direction) - 0° rotation
-    Deg90   // Vertical alignment (Z-axis / negative Z direction) - -90° rotation
+    Deg90   // Vertical alignment (Z-axis / positive Z direction) - 90° rotation
 }

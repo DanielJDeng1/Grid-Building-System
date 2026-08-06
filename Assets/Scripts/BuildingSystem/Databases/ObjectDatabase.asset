@@ -19,26 +19,26 @@ MonoBehaviour:
     prefab: {fileID: 21146417259945532, guid: d81800e449ef6b44287cf9aee246af30, type: 3}
     ID: 0
     buildType: 0
-  - name: Furniture
+  - name: Stool
     positionsFilled:
     - {x: 0, y: 0}
-    prefab: {fileID: 1495981623883154040, guid: f1d56489f2b75d3488a1413ad74bea4a, type: 3}
+    prefab: {fileID: 1239021075070178261, guid: cc1d6aa9c5448284d952841ad5ffdc84, type: 3}
     ID: 1
     buildType: 1
-  - name: Furniture
-    positionsFilled:
-    - {x: 0, y: 0}
-    - {x: 1, y: 1}
-    - {x: 0, y: 1}
-    prefab: {fileID: 4676486647604318280, guid: 4058da6ae6d53794b8be77f5a9b47283, type: 3}
-    ID: 3
-    buildType: 1
-  - name: Furniture
+  - name: Light
     positionsFilled:
     - {x: 0, y: 0}
     prefab: {fileID: 7590343297513968773, guid: c073b4897633b5f44b80d985d7e71d26, type: 3}
     ID: 2
     buildType: 3
+  - name: Desk
+    positionsFilled:
+    - {x: 0, y: 0}
+    - {x: 1, y: 0}
+    - {x: 2, y: 0}
+    prefab: {fileID: 945527129069122034, guid: 8c997edf6dddf0f42961c2718325c2c7, type: 3}
+    ID: 3
+    buildType: 1
   - name: Furniture
     positionsFilled:
     - {x: 0, y: 0}
@@ -46,15 +46,14 @@ MonoBehaviour:
     prefab: {fileID: 1927320992012852779, guid: fb0d0b62f22c24d46a8d9846856af77d, type: 3}
     ID: 4
     buildType: 3
-  - name: Furniture
+  - name: Bed
     positionsFilled:
     - {x: 0, y: 0}
-    prefab: {fileID: 21146417259945532, guid: 7c3e19952cf4a0c4db3c42dd44ed0a04, type: 3}
+    - {x: 1, y: 0}
+    - {x: 0, y: 1}
+    - {x: 1, y: 1}
+    - {x: 0, y: 2}
+    - {x: 1, y: 2}
+    prefab: {fileID: 3677381198012095092, guid: 23f1def063a77ca4d908fdb5336e1a6e, type: 3}
     ID: 5
-    buildType: 0
-  - name: Elevator
-    positionsFilled:
-    - {x: 0, y: 0}
-    prefab: {fileID: 1495981623883154040, guid: f1d56489f2b75d3488a1413ad74bea4a, type: 3}
-    ID: 6
     buildType: 1
