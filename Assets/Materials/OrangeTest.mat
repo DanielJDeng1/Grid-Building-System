@@ -8,12 +8,12 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: OrangeTest
-  m_Shader: {fileID: 4800000, guid: 5c0b99649c794864289940b9fa74d1a5, type: 3}
+  m_Shader: {fileID: 4800000, guid: 48e5d5caad1000847bdc1dda60972ee0, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords:
+  m_ValidKeywords: []
+  m_InvalidKeywords:
   - _SPECULAR_SETUP
-  m_InvalidKeywords: []
   m_LightmapFlags: 0
   m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
@@ -170,6 +170,7 @@ Material:
     - _RimIntensity: 0
     - _RimLitSideOnly: 0
     - _RimPower: 8
+    - _RimSoftness: 1.5
     - _RimStrength: 0
     - _RimThreshold: 0.4
     - _SampleGI: 0
@@ -193,12 +194,15 @@ Material:
     - _SoftParticlesNearFadeDistance: 0
     - _SparkleSize: 0.9
     - _SparkleSoftness: 0.05
+    - _SpecExponent: 120
     - _SpecIntensity: 1.5
     - _SpecPower: 32
     - _SpecSize: 0.85
     - _SpecSmoothness: 0.05
+    - _SpecSoftness: 1
     - _SpecSource: 0
     - _SpecStrength: 0.15
+    - _SpecThreshold: 0.5
     - _SpecularHighlights: 1
     - _SpecularIntensity: 1.2
     - _SpecularPower: 32

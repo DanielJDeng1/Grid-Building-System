@@ -147,6 +147,7 @@ Material:
     - _RimIntensity: 0
     - _RimLitSideOnly: 0
     - _RimPower: 2
+    - _RimSoftness: 1.5
     - _RimStrength: 0.2
     - _RimThreshold: 0.4
     - _SampleGI: 0
@@ -167,9 +168,13 @@ Material:
     - _SmoothnessTextureChannel: 0
     - _SparkleSize: 0.9
     - _SparkleSoftness: 0.05
+    - _SpecExponent: 120
+    - _SpecIntensity: 1.5
     - _SpecPower: 32
+    - _SpecSoftness: 1
     - _SpecSource: 0
     - _SpecStrength: 0.15
+    - _SpecThreshold: 0.5
     - _SpecularHighlights: 1
     - _SpecularIntensity: 1.2
     - _SpecularSize: 178

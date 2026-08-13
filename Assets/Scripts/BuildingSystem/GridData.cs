@@ -225,6 +225,25 @@ public class GridData
         return _placedObjects[gridPosition].placedObjectIndex;
     }
 
+    /// <summary>
+    /// Combined ID + placedObjectIndex lookup for a single edge - used by wall-opening validation
+    /// to check both "is there a wall here" (ID resolves to a shouldChunk EdgeData) and get its
+    /// handle, in one dictionary access instead of two.
+    /// </summary>
+    public bool TryGetEdgeInfo(Edge edge, out int ID, out int placedObjectIndex)
+    {
+        if (_placedEdges.TryGetValue(edge, out PlacedEdge data))
+        {
+            ID = data.ID;
+            placedObjectIndex = data.placedObjectIndex;
+            return true;
+        }
+
+        ID = -1;
+        placedObjectIndex = -1;
+        return false;
+    }
+
     public void RemoveObjectAt(Vector3Int gridPosition)
     {
         if (!_placedObjects.ContainsKey(gridPosition))

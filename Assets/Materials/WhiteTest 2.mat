@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: WhiteTest 2
-  m_Shader: {fileID: 4800000, guid: 6a179e1122afd2f4cae7a9f19a799f25, type: 3}
+  m_Shader: {fileID: 4800000, guid: 48e5d5caad1000847bdc1dda60972ee0, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -94,6 +94,7 @@ Material:
     - _AlphaToMask: 0
     - _Ambient: 0.25
     - _AmbientGI: 0.2
+    - _AmbientIntensity: 0.6
     - _AmbientStrength: 1
     - _AmbientTint: 0.5
     - _Blend: 0
@@ -106,6 +107,7 @@ Material:
     - _CelStrength: 0.35
     - _ClearCoatMask: 0
     - _ClearCoatSmoothness: 0
+    - _Contrast: 1.2
     - _Cull: 2
     - _Cutoff: 0.5
     - _DetailAlbedoMapScale: 1
@@ -125,23 +127,29 @@ Material:
     - _Glossiness: 0
     - _GlossinessSource: 0
     - _GlossyReflections: 0
+    - _GrimeAmount: 0.04
+    - _GrimeScale: 0.5
     - _HighlightThreshold: 0.5
     - _LightThreshold: 0.75
     - _LightingStrength: 0.65
     - _Metallic: 0
     - _MidMultiplier: 0.75
     - _MidStrength: 0.8
+    - _MidToHighlightPoint: 0.75
     - _OcclusionStrength: 1
     - _Parallax: 0.005
     - _QueueOffset: 0
+    - _RampSoftness: 0.08
     - _ReceiveShadows: 1
     - _ReceiveShadowsOff: 0
     - _RimIntensity: 0
     - _RimLitSideOnly: 0
     - _RimPower: 1
+    - _RimSoftness: 1.5
     - _RimStrength: 0
     - _RimThreshold: 0.4
     - _SampleGI: 0
+    - _Saturation: 1.5
     - _ShadowColorStrength: 0.85
     - _ShadowMultiplier: 0.45
     - _ShadowSmoothness: 0.05
@@ -149,13 +157,20 @@ Material:
     - _ShadowSteps: 2
     - _ShadowStrength: 0.45
     - _ShadowThreshold: 0.35
+    - _ShadowToMidPoint: 0.35
     - _Shininess: 0
     - _Smoothness: 0.5
     - _SmoothnessSource: 0
     - _SmoothnessTextureChannel: 0
+    - _SparkleSize: 0.9
+    - _SparkleSoftness: 0.05
+    - _SpecExponent: 120
+    - _SpecIntensity: 1.5
     - _SpecPower: 32
+    - _SpecSoftness: 1
     - _SpecSource: 0
     - _SpecStrength: 0.15
+    - _SpecThreshold: 0.5
     - _SpecularHighlights: 1
     - _SpecularSize: 0.08
     - _SpecularSmoothness: 0.02
@@ -182,6 +197,7 @@ Material:
     - _MidtoneColor: {r: 1, g: 1, b: 1, a: 1}
     - _RimColor: {r: 1, g: 1, b: 1, a: 1}
     - _ShadowColor: {r: 0.54999995, g: 0.6, b: 0.68, a: 1}
+    - _SparkleColor: {r: 2.2, g: 2, b: 1.6, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _SpecularColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

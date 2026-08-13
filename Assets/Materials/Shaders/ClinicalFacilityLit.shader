@@ -1,4 +1,4 @@
-Shader "ClinicalFacility/FacilityLit"
+Shader "ClinicalFacility/FacilityToon"
 {
     Properties
     {
@@ -8,21 +8,31 @@ Shader "ClinicalFacility/FacilityLit"
         _BumpMap ("Normal Map", 2D) = "bump" {}
         _BumpScale ("Normal Strength", Float) = 1.0
 
-        _Smoothness ("Smoothness", Range(0,1)) = 0.5
-        _SpecColor ("Specular Color", Color) = (0.95, 0.96, 1.0, 1)
+        [Header(Toon Diffuse)]
+        _ShadowColor ("Shadow Color", Color) = (0.35, 0.38, 0.32, 1)
+        _ShadowThreshold ("Shadow Threshold", Range(0, 3)) = 0.45
+        _ShadowSoftness ("Shadow Edge Softness", Range(0.01, 4)) = 1.0
 
-        [IntRange] _CelBands ("Cel Bands (0 = smooth PBR)", Range(0, 8)) = 0
+        [Header(Specular Highlight)]
+        _SpecColor ("Specular Color", Color) = (1.0, 0.98, 0.85, 1)
+        _SpecExponent ("Specular Tightness", Range(4, 512)) = 120
+        _SpecThreshold ("Specular Threshold", Range(0, 1)) = 0.5
+        _SpecSoftness ("Specular Edge Softness", Range(0.01, 4)) = 1.0
+        _SpecIntensity ("Specular Intensity", Range(0, 4)) = 1.5
 
-        _RimPower ("Rim Power", Range(0.5, 8)) = 3.0
-        _RimColor ("Rim Color", Color) = (0.6, 0.75, 0.9, 1)
-        _RimIntensity ("Rim Intensity", Range(0, 2)) = 0.4
+        [Header(Rim)]
+        _RimColor ("Rim Color", Color) = (0.9, 0.95, 0.7, 1)
+        _RimPower ("Rim Power", Range(0.5, 8)) = 2.5
+        _RimThreshold ("Rim Threshold", Range(0, 1)) = 0.55
+        _RimSoftness ("Rim Edge Softness", Range(0.01, 4)) = 1.5
+        _RimIntensity ("Rim Intensity", Range(0, 2)) = 0.35
 
-        _AmbientIntensity ("Ambient Intensity", Range(0, 2)) = 0.8
+        [Header(Fill)]
+        _AmbientIntensity ("Ambient Intensity", Range(0, 2)) = 0.6
 
-        _GrimeAmount ("Grime Amount", Range(0, 0.3)) = 0.06
+        [Header(Surface Detail)]
+        _GrimeAmount ("Grime Amount", Range(0, 0.3)) = 0.04
         _GrimeScale ("Grime Scale", Range(0.05, 5)) = 0.5
-
-        [Toggle(_RECEIVE_SHADOWS_OFF)] _ReceiveShadowsOff ("Disable Receive Shadows", Float) = 0
     }
 
     SubShader
@@ -45,15 +55,9 @@ Shader "ClinicalFacility/FacilityLit"
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile _ _SHADOWS_SOFT
-            #pragma multi_compile _ _SCREEN_SPACE_OCCLUSION
-            #pragma multi_compile _ _FORWARD_PLUS
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
             #pragma multi_compile _ LIGHTMAP_ON
             #pragma multi_compile_fog
-
-            // Forces the metallic-workflow BRDF setup to treat SurfaceData.specular as a
-            // direct F0 tint, so _SpecColor actually colors the highlight instead of being
-            // silently ignored (which is what the default metallic/dielectric path does).
-            #define _SPECULAR_SETUP 1
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -85,12 +89,23 @@ Shader "ClinicalFacility/FacilityLit"
                 float4 _BaseMap_ST;
                 half4 _BaseColor;
                 half _BumpScale;
-                half _Smoothness;
+
+                half4 _ShadowColor;
+                half _ShadowThreshold;
+                half _ShadowSoftness;
+
                 half4 _SpecColor;
-                half _CelBands;
-                half _RimPower;
+                half _SpecExponent;
+                half _SpecThreshold;
+                half _SpecSoftness;
+                half _SpecIntensity;
+
                 half4 _RimColor;
+                half _RimPower;
+                half _RimThreshold;
+                half _RimSoftness;
                 half _RimIntensity;
+
                 half _AmbientIntensity;
                 half _GrimeAmount;
                 half _GrimeScale;
@@ -122,22 +137,28 @@ Shader "ClinicalFacility/FacilityLit"
 
                 half3 viewDirWS = normalize(GetCameraPositionWS() - IN.positionWS);
 
-                half3 lit = EvaluateClinicalLighting(
+                half3 lit = EvaluateClinicalToonLighting(
                     IN.positionWS,
                     normalWS,
                     viewDirWS,
                     baseSample.rgb,
-                    _Smoothness,
+                    _SpecExponent,
+                    _ShadowColor.rgb,
+                    _ShadowThreshold,
+                    _ShadowSoftness,
                     _SpecColor.rgb,
-                    _CelBands,
-                    _RimPower,
+                    _SpecThreshold,
+                    _SpecSoftness,
+                    _SpecIntensity,
                     _RimColor.rgb,
+                    _RimPower,
+                    _RimThreshold,
+                    _RimSoftness,
                     _RimIntensity,
                     _AmbientIntensity,
                     _GrimeAmount,
                     _GrimeScale,
-                    IN.shadowCoord,
-                    IN.positionCS);
+                    IN.shadowCoord);
 
                 lit = MixFog(lit, ComputeFogFactor(TransformWorldToHClip(IN.positionWS).z));
 
@@ -146,7 +167,6 @@ Shader "ClinicalFacility/FacilityLit"
             ENDHLSL
         }
 
-        // Needed so the object casts shadows normally
         Pass
         {
             Name "ShadowCaster"
@@ -162,8 +182,6 @@ Shader "ClinicalFacility/FacilityLit"
             ENDHLSL
         }
 
-        // Needed for the depth prepass AND for the edge-detection post effect below,
-        // which reads normals out of this pass's target.
         Pass
         {
             Name "DepthNormals"

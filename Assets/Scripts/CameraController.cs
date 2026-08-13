@@ -30,27 +30,14 @@ public class BuilderCameraController : MonoBehaviour
     [SerializeField] private PlacementSystem _placementSystem;
     [SerializeField] private float heightFollowSmoothTime = 0.35f;
 
-    [Header("Wall Occlusion Fade")]
+    [Header("Wall Occlusion Hiding")]
     [SerializeField] private LayerMask occlusionLayerMask;
     [SerializeField] private Transform focusPoint;
     [Tooltip("The horizontal half-width and vertical half-height of the upright sweeping box.")]
     [SerializeField] private float occlusionVolumeRadius = 0.5f;
-    [SerializeField] private float fadeSpeed = 5f;
-    [Range(0f, 1f)]
-    [SerializeField] private float targetFadedAlpha = 0.2f;
     
-    [Tooltip("The camera pitch angle (in degrees) below which fading is allowed. If pitch is higher than this, walls stay solid.")]
+    [Tooltip("The camera pitch angle (in degrees) below which wall hiding is allowed. If pitch is higher than this, walls stay visible.")]
     [SerializeField] private float fadeAngleThreshold = 50f;
-
-    private static readonly int ColorPropertyId = Shader.PropertyToID("_BaseColor");
-
-    private class FadeState
-    {
-        public Renderer Renderer;
-        public float CurrentAlpha = 1f;
-        public float TargetAlpha = 1f;
-        public Color OriginalColor;
-    }
 
     private InputSystem.Controls inputActions;
     private CinemachineCamera vCam;
@@ -66,11 +53,9 @@ public class BuilderCameraController : MonoBehaviour
     private float _targetHeight;
     private float _heightVelocity;
 
-    private readonly Dictionary<Renderer, FadeState> _trackedRenderers = new Dictionary<Renderer, FadeState>();
+    private readonly HashSet<Renderer> _currentlyHiddenRenderers = new HashSet<Renderer>();
     private readonly HashSet<Renderer> _hitThisFrame = new HashSet<Renderer>();
-    private readonly List<Renderer> _cleanupList = new List<Renderer>();
-    private MaterialPropertyBlock _mpBlock;
-    private MaterialPropertyBlock _emptyBlock;
+    private readonly List<Renderer> _restoreList = new List<Renderer>();
 
     // Gizmo Caching Variables
     private Vector3 _gizmoStart;
@@ -85,9 +70,6 @@ public class BuilderCameraController : MonoBehaviour
         mainCam = Camera.main;
 
         inputActions.Camera.Pitch.performed += ctx => OnScrollInput(ctx.ReadValue<float>());
-
-        _mpBlock = new MaterialPropertyBlock();
-        _emptyBlock = new MaterialPropertyBlock();
     }
 
     private void OnEnable()
@@ -103,7 +85,7 @@ public class BuilderCameraController : MonoBehaviour
         if (_placementSystem != null)
             _placementSystem.OnBuildHeightChanged -= HandleBuildHeightChanged;
 
-        RestoreAllFadedRenderers();
+        RestoreAllHiddenRenderers();
     }
 
     private void Start()
@@ -145,7 +127,7 @@ public class BuilderCameraController : MonoBehaviour
 
     private void LateUpdate()
     {
-        HandleOcclusionFade();
+        HandleOcclusionToggle();
     }
 
     private void HandleTransitions()
@@ -187,23 +169,20 @@ public class BuilderCameraController : MonoBehaviour
         transform.position = position;
     }
 
-    private void HandleOcclusionFade()
+    private void HandleOcclusionToggle()
     {
         if (mainCam == null) mainCam = Camera.main;
         if (mainCam == null) return;
 
-        // CRITICAL UPDATE: Check current camera pitch angle.
-        // If the angle is steep (above threshold), fade out the effect completely.
         float currentPitchAngle = mainCam.transform.eulerAngles.x;
-        // Normalize angle to handle potential wrapping quirks (-180 to 180 conversions)
         if (currentPitchAngle > 180f) currentPitchAngle -= 360f;
 
+        // Pitch exceeded threshold; restore all renderers and stop occlusion checks
         if (currentPitchAngle > fadeAngleThreshold)
         {
             _canDrawGizmo = false;
-            // Mark nothing as hit this frame so existing faded walls transition back smoothly
             _hitThisFrame.Clear();
-            ProcessFadeTransitions();
+            ProcessOcclusionState();
             return;
         }
 
@@ -248,16 +227,8 @@ public class BuilderCameraController : MonoBehaviour
                     continue;
                 }
 
-                Transform rootStructure = col.transform;
-                while (rootStructure.parent != null && 
-                       rootStructure.parent.gameObject.layer == rootStructure.gameObject.layer &&
-                       !rootStructure.parent.name.Contains("Manager") && 
-                       !rootStructure.parent.name.Contains("Grid"))
-                {
-                    rootStructure = rootStructure.parent;
-                }
-
-                Renderer[] structuralRenderers = rootStructure.GetComponentsInChildren<Renderer>();
+                // Target ONLY renderers directly on the hit chunk collider
+                Renderer[] structuralRenderers = col.GetComponentsInChildren<Renderer>();
 
                 foreach (Renderer hitRenderer in structuralRenderers)
                 {
@@ -265,23 +236,10 @@ public class BuilderCameraController : MonoBehaviour
 
                     _hitThisFrame.Add(hitRenderer);
 
-                    if (!_trackedRenderers.ContainsKey(hitRenderer))
+                    if (!_currentlyHiddenRenderers.Contains(hitRenderer))
                     {
-                        Color origColor = hitRenderer.sharedMaterial.HasProperty(ColorPropertyId) 
-                            ? hitRenderer.sharedMaterial.GetColor(ColorPropertyId) 
-                            : Color.white;
-
-                        _trackedRenderers.Add(hitRenderer, new FadeState
-                        {
-                            Renderer = hitRenderer,
-                            CurrentAlpha = 1f,
-                            TargetAlpha = targetFadedAlpha,
-                            OriginalColor = origColor
-                        });
-                    }
-                    else
-                    {
-                        _trackedRenderers[hitRenderer].TargetAlpha = targetFadedAlpha;
+                        hitRenderer.enabled = false;
+                        _currentlyHiddenRenderers.Add(hitRenderer);
                     }
                 }
             }
@@ -291,60 +249,44 @@ public class BuilderCameraController : MonoBehaviour
             _canDrawGizmo = false;
         }
 
-        ProcessFadeTransitions();
+        ProcessOcclusionState();
     }
 
-    private void ProcessFadeTransitions()
+    private void ProcessOcclusionState()
     {
-        foreach (var kvp in _trackedRenderers)
-        {
-            if (!_hitThisFrame.Contains(kvp.Key))
-            {
-                kvp.Value.TargetAlpha = 1f;
-            }
-        }
+        _restoreList.Clear();
 
-        _cleanupList.Clear();
-        foreach (var kvp in _trackedRenderers)
+        foreach (Renderer renderer in _currentlyHiddenRenderers)
         {
-            FadeState state = kvp.Value;
-            if (state.Renderer == null)
+            if (renderer == null)
             {
-                _cleanupList.Add(kvp.Key);
+                _restoreList.Add(renderer);
                 continue;
             }
 
-            state.CurrentAlpha = Mathf.MoveTowards(state.CurrentAlpha, state.TargetAlpha, fadeSpeed * Time.deltaTime);
-
-            state.Renderer.GetPropertyBlock(_mpBlock);
-            Color updatedColor = state.OriginalColor;
-            updatedColor.a = state.CurrentAlpha;
-            _mpBlock.SetColor(ColorPropertyId, updatedColor);
-            state.Renderer.SetPropertyBlock(_mpBlock);
-
-            if (Mathf.Approximately(state.CurrentAlpha, 1f) && Mathf.Approximately(state.TargetAlpha, 1f))
+            if (!_hitThisFrame.Contains(renderer))
             {
-                state.Renderer.SetPropertyBlock(_emptyBlock);
-                _cleanupList.Add(kvp.Key);
+                renderer.enabled = true;
+                _restoreList.Add(renderer);
             }
         }
 
-        foreach (var renderer in _cleanupList)
+        foreach (Renderer renderer in _restoreList)
         {
-            _trackedRenderers.Remove(renderer);
+            _currentlyHiddenRenderers.Remove(renderer);
         }
     }
 
-    private void RestoreAllFadedRenderers()
+    private void RestoreAllHiddenRenderers()
     {
-        foreach (var kvp in _trackedRenderers)
+        foreach (Renderer renderer in _currentlyHiddenRenderers)
         {
-            if (kvp.Key != null)
+            if (renderer != null)
             {
-                kvp.Key.SetPropertyBlock(_emptyBlock);
+                renderer.enabled = true;
             }
         }
-        _trackedRenderers.Clear();
+        _currentlyHiddenRenderers.Clear();
     }
 
     private void OnDrawGizmos()
@@ -363,4 +305,4 @@ public class BuilderCameraController : MonoBehaviour
         Gizmos.color = Color.yellow;
         Gizmos.DrawLine(_gizmoStart, _gizmoEnd);
     }
-}   
+}

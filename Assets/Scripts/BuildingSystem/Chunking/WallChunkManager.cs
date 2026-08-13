@@ -93,6 +93,9 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
     private readonly Dictionary<int, (RunKey key, int coordinate)> _handleToPosition = new();
     private readonly HashSet<int> _dirtyRuns = new();
 
+    // Alongside the existing _runs / _positionToRunId / _handleToPosition fields:
+    private readonly Dictionary<int, int> _openingHandleToRunId = new();
+
     #region Public API
 
     /// <summary>
@@ -137,6 +140,18 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
     /// </summary>
     public void RemoveEntry(int handle)
     {
+
+         if (_openingHandleToRunId.TryGetValue(handle, out int openingRunId))
+        {
+            if (_runs.TryGetValue(openingRunId, out WallRun openingRun))
+            {
+                openingRun.meshChunk.RemoveEntry(handle);
+                MarkDirty(openingRunId);
+            }
+            _openingHandleToRunId.Remove(handle);
+            return;
+        }
+        
         if (!_handleToPosition.TryGetValue(handle, out (RunKey key, int coordinate) location))
             return;
 
@@ -192,6 +207,67 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
         // runs (if they were the same run, this coordinate would already have been part of
         // it, contradicting it being empty a moment ago).
         return BridgeTwoRuns(leftRunId, rightRunId, key);
+    }
+
+    /// <summary>
+    /// Swaps the prefab used by an existing wall tile's ChunkEntry in place (same worldMatrix),
+    /// without touching run adjacency/contiguity bookkeeping. Used by wall openings to install a
+    /// procedurally-cut segment (WallSegmentCutCache) and to restore the original prefab when an
+    /// opening is removed but the wall stays.
+    /// </summary>
+    public bool TrySetTilePrefab(EdgeRotation rotation, Vector3Int tile, GameObject prefab)
+    {
+        RunKey key = rotation == EdgeRotation.Deg0
+            ? new RunKey(EdgeRotation.Deg0, tile.z, tile.y)
+            : new RunKey(EdgeRotation.Deg90, tile.x, tile.y);
+
+        int coordinate = rotation == EdgeRotation.Deg0 ? tile.x : tile.z;
+
+        if (!_positionToRunId.TryGetValue((key, coordinate), out int runId))
+            return false;
+
+        WallRun run = _runs[runId];
+        if (!run.coordinateToHandle.TryGetValue(coordinate, out int handle))
+            return false;
+
+        if (!run.meshChunk.TryGetEntry(handle, out ChunkEntry existing))
+            return false;
+
+        run.meshChunk.AddEntry(handle, new ChunkEntry(prefab, existing.worldMatrix));
+        MarkDirty(runId);
+        return true;
+    }
+
+    /// <summary>
+    /// Attaches a chunked wall-opening's mesh entry directly into the SAME Chunk as the wall run
+    /// covering anchorTile, under its own handle from ChunkHandleRegistry. Deliberately NOT added
+    /// to coordinateToHandle/_positionToRunId - those exist purely for wall-TILE adjacency
+    /// (extend/merge/split), and an opening isn't a wall tile. This keeps run split/merge logic
+    /// (which only iterates coordinateToHandle) completely unaware openings exist. Removal is
+    /// routed through _openingHandleToRunId instead - see RemoveEntry below.
+    /// </summary>
+    public int AttachOpeningEntry(GameObject prefab, Vector3 worldPosition, EdgeRotation rotation, Vector3Int anchorTile)
+    {
+        RunKey key = rotation == EdgeRotation.Deg0
+            ? new RunKey(EdgeRotation.Deg0, anchorTile.z, anchorTile.y)
+            : new RunKey(EdgeRotation.Deg90, anchorTile.x, anchorTile.y);
+
+        int coordinate = rotation == EdgeRotation.Deg0 ? anchorTile.x : anchorTile.z;
+
+        if (!_positionToRunId.TryGetValue((key, coordinate), out int runId))
+        {
+            Debug.LogError("WallChunkManager: AttachOpeningEntry called with no wall run at anchorTile - caller must validate a wall exists first.");
+            return 0;
+        }
+
+        Matrix4x4 worldMatrix = ChunkRotationMath.GetEdgeObjectMatrix(worldPosition, rotation);
+        int handle = ChunkHandleRegistry.Register(this);
+
+        _runs[runId].meshChunk.AddEntry(handle, new ChunkEntry(prefab, worldMatrix));
+        _openingHandleToRunId[handle] = runId;
+
+        MarkDirty(runId);
+        return handle;
     }
 
     private bool HasRoom(int runId) => _runs[runId].coordinateToHandle.Count < _maxRunLength;

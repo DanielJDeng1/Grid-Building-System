@@ -57,3 +57,12 @@ MonoBehaviour:
     prefab: {fileID: 3677381198012095092, guid: 23f1def063a77ca4d908fdb5336e1a6e, type: 3}
     ID: 5
     buildType: 1
+  - name: Lab Desk
+    positionsFilled:
+    - {x: 0, y: 0}
+    - {x: -1, y: 0}
+    - {x: 0, y: -1}
+    - {x: -1, y: -1}
+    prefab: {fileID: 1648835846852269366, guid: 78e7c7d42ad2a6745b1db643e4b35d2b, type: 3}
+    ID: 6
+    buildType: 1

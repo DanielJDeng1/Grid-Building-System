@@ -10,6 +10,10 @@ using UnityEngine;
 /// - Grid object removal - supports rectangle drag-removal
 /// - Edge object placement (walls, fences, railings) - single-click only
 /// - Edge object removal - single-click only
+/// - Wall opening placement (doors, windows) - single-click only, requires a chunked wall
+///   already present at the target tile(s) - see WallOpeningState
+/// - Wall opening removal - single-click only, restores the host wall's original mesh - see
+///   WallOpeningRemovalState
 /// 
 /// DRAG INPUT FLOW:
 /// - Mouse down  -> OnActionStart(gridPosition): records drag origin (if the active state supports it)
@@ -42,24 +46,34 @@ using UnityEngine;
 /// 
 /// ARCHITECTURE:
 /// Uses State pattern to handle different building modes.
-/// Each mode (GridState, EdgeState, GridRemovalState, EdgeRemovalState)
-/// encapsulates its own logic for placement, validation, and preview.
+/// Each mode (GridState, EdgeState, GridRemovalState, EdgeRemovalState, WallOpeningState,
+/// WallOpeningRemovalState) encapsulates its own logic for placement, validation, and preview.
 /// 
 /// INPUT BINDING:
 /// PlacementSystem subscribes to InputManager events and delegates
 /// to the active building state. Events are unsubscribed when state changes.
 /// 
 /// SAFETY FIX:
-/// Now validates object/edge IDs before creating states to prevent
+/// Now validates object/edge/opening IDs before creating states to prevent
 /// constructor exceptions from leaving the system in a broken state.
+/// 
+/// WALL OPENING INTEGRATION:
+/// _wallOpeningLink is constructed once in Awake (alongside the GridData layers) and lives for
+/// the lifetime of this component. It subscribes to OnEdgeOccupancyChanged on every GridData
+/// layer that can host a wall, so a wall removed/overridden through ANY state - not just
+/// WallOpeningRemovalState - correctly cascade-removes any opening embedded in it. See
+/// WallOpeningLinkService's own doc comment for the full rationale.
 /// 
 /// INSPECTOR SETUP:
 /// - Assign InputManager reference
 /// - Assign Grid component (Unity's Grid)
 /// - Assign ObjectDatabase ScriptableObject
 /// - Assign EdgeDatabase ScriptableObject
+/// - Assign WallOpeningDatabase ScriptableObject (required for StartWallOpeningPlacement)
 /// - Assign GridVisualization GameObject
 /// - Assign ObjectPlacer component
+/// - Assign WallChunkManager component - MUST be the same instance referenced by ObjectPlacer's
+///   own WallChunkManager field, since wall openings cut tiles through this reference directly
 /// - Assign PreviewSystem component
 /// - Configure buildHeightIncrement (e.g., 3 for floors every 3 units)
 /// - To enable camera fly-to and grid-visual height tracking, assign THIS
@@ -80,6 +94,11 @@ public class PlacementSystem : MonoBehaviour
     [Tooltip("Required for stair/elevator placement (TraversalState) - it needs INavObstacleChannel to register the NavLink at placement time.")]
     [SerializeField] private NavigationService _navigationService;
 
+    [Header("Wall Openings")]
+    [SerializeField] private WallOpeningDatabase _wallOpeningDatabase;
+    [Tooltip("Must be the SAME WallChunkManager instance assigned on ObjectPlacer - wall openings cut wall tiles through this reference directly.")]
+    [SerializeField] private WallChunkManager _wallChunkManager;
+
     [Header("Multi-Level Building")]
     [SerializeField] private int _buildHeightIncrement = 3; // Y-units per floor level
     [SerializeField] private int _minBuildHeight = 0; // Minimum Y-level (ground)
@@ -98,6 +117,8 @@ public class PlacementSystem : MonoBehaviour
     private GridData _ceilingData;
     private GridData _ceilingFurnitureData;
     private GridData _traversalData;
+
+    private WallOpeningLinkService _wallOpeningLink;
 
     // NULLABLE FIX: Use nullable instead of sentinel value
     private Vector3Int? _lastDetectedPosition = null;
@@ -120,6 +141,10 @@ public class PlacementSystem : MonoBehaviour
     /// Awake() in the scene completes before any Start() runs, so this
     /// removes the dependency on script execution order entirely rather
     /// than working around it.
+    /// 
+    /// WallOpeningLinkService is constructed here for the same reason - it
+    /// subscribes to these same GridData instances' OnEdgeOccupancyChanged
+    /// event, and needs them to already exist.
     /// </summary>
     private void Awake()
     {
@@ -128,13 +153,21 @@ public class PlacementSystem : MonoBehaviour
         _ceilingData = new();
         _ceilingFurnitureData = new();
         _traversalData = new();
+
+        _wallOpeningLink = new WallOpeningLinkService(_wallChunkManager, _objectPlacer, _floorData, _furnitureData, _ceilingData);
+    }
+
+    private void OnDestroy()
+    {
+        _wallOpeningLink?.Dispose();
     }
 
     /// <summary>
     /// Read-only access to the three build layers, for systems that need to
     /// observe placement/removal without participating in it - currently
-    /// BuildingNavBridge. Exposed here rather than handed out piecemeal so
-    /// there's a single, obvious integration point.
+    /// BuildingNavBridge and WallOpeningLinkService. Exposed here rather
+    /// than handed out piecemeal so there's a single, obvious integration
+    /// point.
     /// </summary>
     public GridData FloorData => _floorData;
     public GridData FurnitureData => _furnitureData;
@@ -433,6 +466,66 @@ public class PlacementSystem : MonoBehaviour
             _floorData, 
             _furnitureData, 
             _ceilingData
+        );
+
+        BindInputEvents();
+    }
+
+    /// <summary>
+    /// Activates wall opening placement mode (doors, windows). Same
+    /// ID-validation-before-transition safety pattern as StartEdgePlacement.
+    /// Placement itself is rejected per-tile by WallOpeningState if no
+    /// chunked wall exists at the target position - see that class.
+    /// </summary>
+    /// <param name="ID">Wall opening ID from WallOpeningDatabase</param>
+    public void StartWallOpeningPlacement(int ID)
+    {
+        int openingIndex = _wallOpeningDatabase.openingData.FindIndex(data => data.ID == ID);
+        if (openingIndex < 0)
+        {
+            Debug.LogError($"PlacementSystem: Cannot start wall opening placement - no opening with ID {ID} found in WallOpeningDatabase");
+            return;
+        }
+
+        if (_wallChunkManager == null)
+        {
+            Debug.LogError("PlacementSystem: _wallChunkManager must be assigned in the Inspector to place wall openings.");
+            return;
+        }
+
+        StopPlacement();
+        _gridVisualization.SetActive(true);
+
+        _buildingState = new WallOpeningState(
+            ID,
+            _grid,
+            _previewSystem,
+            _wallOpeningDatabase,
+            _edgeDatabase,
+            _objectPlacer,
+            _wallChunkManager,
+            _wallOpeningLink,
+            _floorData,
+            _furnitureData,
+            _ceilingData
+        );
+
+        BindInputEvents();
+    }
+
+    /// <summary>
+    /// Activates wall opening removal mode. Removing an opening restores its
+    /// host wall tile(s)' original mesh - see WallOpeningLinkService.RemoveOpening.
+    /// </summary>
+    public void StartWallOpeningRemoving()
+    {
+        StopPlacement();
+        _gridVisualization.SetActive(true);
+
+        _buildingState = new WallOpeningRemovalState(
+            _grid,
+            _previewSystem,
+            _wallOpeningLink
         );
 
         BindInputEvents();
