@@ -2,26 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Computes a single combined local-space AABB from all BoxColliders on a prefab, expressed
-/// relative to the prefab's root transform. Used to derive wall-opening cutout dimensions
-/// directly from a prefab's collider instead of authoring separate metadata - see
-/// WallOpeningCutPlanner and WallSegmentCutCache.
-///
-/// WHY COLLIDER, NOT MESH: mesh bounds pull in trim/decorative geometry that can extend past
-/// the wall's actual blocking volume (overhangs, skirting, corner brackets), which would throw
-/// off cut placement. The collider is already the authoritative "solid volume" for this system
-/// (Chunk generates its own physics colliders from mesh bounds today, but that's a runtime
-/// chunk-level box, not a reusable per-prefab local-space one - this is the per-prefab
-/// equivalent, read from hand-authored colliders instead).
-///
-/// BOX COLLIDERS ONLY: consistent with the rest of this system (see Chunk.ColliderMode and
-/// EncapsulateBounds) - every rotation here is a 90-degree multiple, so axis-aligned boxes are
-/// always an exact fit. Non-box colliders are ignored; a prefab needing a different collider
-/// shape for other purposes (e.g. a door leaf's own trigger) should carry a dedicated
-/// BoxCollider sized to the desired cutout instead.
-///
-/// Results are cached per-prefab like PrefabMeshCache, since prefab asset hierarchies never
-/// change at runtime.
+/// Caches combined local-space AABBs derived from a prefab's BoxColliders.
+/// Used for precise wall cutout dimensions without relying on decorative mesh bounds.
 /// </summary>
 public static class PrefabColliderCache
 {
@@ -37,7 +19,9 @@ public static class PrefabColliderCache
         return bounds;
     }
 
-    /// <summary>Clears cached bounds for a specific prefab - call if its colliders are ever swapped at runtime.</summary>
+    /// <summary>
+    /// Evicts cached bounds for a prefab asset.
+    /// </summary>
     public static void Invalidate(GameObject prefab)
     {
         _cache.Remove(prefab);
@@ -50,10 +34,7 @@ public static class PrefabColliderCache
         bool hasBounds = false;
         Vector3 min = Vector3.zero, max = Vector3.zero;
 
-        // Same root rotation/scale reintroduction as PrefabMeshCache.BuildMeshData - a corrective
-        // scale/rotation baked onto the prefab's ROOT still applies at Instantiate() time, and
-        // has to be reintroduced here once per prefab or it silently disappears from the bounds.
-        // See PrefabMeshCache's comment on this for the full explanation.
+        // Reintroduce root transform scale/rotation to match instance-time matrix evaluation.
         Matrix4x4 rootRotationAndScale = Matrix4x4.TRS(Vector3.zero, prefab.transform.localRotation, prefab.transform.localScale);
 
         foreach (BoxCollider collider in colliders)
@@ -92,7 +73,9 @@ public static class PrefabColliderCache
     }
 }
 
-/// <summary>Combined local-space AABB (relative to prefab root) from a prefab's BoxColliders.</summary>
+/// <summary>
+/// Prefab-root-relative AABB bounds derived from component BoxColliders.
+/// </summary>
 public readonly struct PrefabColliderBounds
 {
     public readonly bool hasBounds;

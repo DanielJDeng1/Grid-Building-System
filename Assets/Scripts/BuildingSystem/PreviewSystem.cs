@@ -1,28 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// State machine context for preview visualization system.
-/// Delegates preview operations to the active IPreviewState implementation.
-/// 
-/// ARCHITECTURE PATTERN: State Pattern
-/// - PreviewSystem: Context (this class)
-/// - IPreviewState: State interface
-/// - GridPreview, EdgePreview, GridRemovalPreview, EdgeRemovalPreview,
-///   GridMultiPlacePreview: Concrete states
-/// 
-/// MATERIAL SYSTEM:
-/// Materials are configured in the Inspector and passed to states for valid/invalid feedback.
-/// - validMaterial: Default appearance (white/green tint)
-/// - invalidMaterial: Error appearance (red tint)
-/// 
-/// LIFECYCLE:
-/// 1. Building state calls SetPreviewState() to activate appropriate preview
-/// 2. UpdatePosition() called every frame with validity check
-/// 3. StopShowingPreview() called when building state ends
-/// 
-/// INSPECTOR SETUP:
-/// - Assign validMaterial (e.g., transparent white shader)
-/// - Assign invalidMaterial (e.g., transparent red shader)
+/// Context manager for placement and deletion previews
+/// Delegates visual rendering and transformation logic to active IPreviewState instances
 /// </summary>
 public class PreviewSystem : MonoBehaviour
 {
@@ -37,7 +17,7 @@ public class PreviewSystem : MonoBehaviour
 
     private IPreviewState _currentState;
 
-    // Cached state instances to avoid repeated allocations
+    // Pre-allocated state instances to avoid GC pressure during tool switching
     private GridPreview _gridPreview;
     private EdgePreview _edgePreview;
     private GridRemovalPreview _gridRemovalPreview;
@@ -46,7 +26,6 @@ public class PreviewSystem : MonoBehaviour
 
     private void Awake()
     {
-        // Initialize all state instances with shared materials
         _gridPreview = new GridPreview(_validMaterial, _invalidMaterial, _previewYOffset);
         _edgePreview = new EdgePreview(_validMaterial, _invalidMaterial, _previewYOffset);
         _gridRemovalPreview = new GridRemovalPreview(_validMaterial, _invalidMaterial, _previewYOffset);
@@ -57,7 +36,7 @@ public class PreviewSystem : MonoBehaviour
     #region State Activation
 
     /// <summary>
-    /// Activates grid object placement preview.
+    /// Displays single-tile placement preview for grid objects
     /// </summary>
     public void StartShowingGridPreview(GameObject prefab, Vector3 position)
     {
@@ -67,7 +46,7 @@ public class PreviewSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Activates edge object placement preview.
+    /// Displays placement preview for wall and edge objects
     /// </summary>
     public void StartShowingEdgePreview(GameObject prefab, Vector3 position)
     {
@@ -77,7 +56,7 @@ public class PreviewSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Activates grid object removal preview (red indicator cube).
+    /// Displays deletion preview for single-tile grid objects
     /// </summary>
     public void StartShowingGridRemovalPreview(Vector3 position)
     {
@@ -87,8 +66,7 @@ public class PreviewSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Activates edge object removal preview.
-    /// Uses the provided prefab with red material to indicate deletion target.
+    /// Displays deletion preview for edge objects using target mesh visual
     /// </summary>
     public void StartShowingEdgeRemovalPreview(GameObject prefab, Vector3 position)
     {
@@ -98,9 +76,7 @@ public class PreviewSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// Activates the rectangle drag-bounds preview used by grid multi-placement
-    /// and multi-removal. originPosition is the drag's starting cell, in world
-    /// space (typically Grid.CellToWorld(dragOriginCell)).
+    /// Displays rectangular bounding box preview for multi-tile batch placement or deletion
     /// </summary>
     public void StartShowingGridMultiPlacePreview(Vector3 originPosition)
     {
@@ -114,29 +90,23 @@ public class PreviewSystem : MonoBehaviour
     #region State Delegation
 
     /// <summary>
-    /// Updates preview position and validity indicator.
-    /// Called every frame by building states.
+    /// Updates active preview transform and applies validation material feedback
     /// </summary>
-    /// <param name="position">World position for preview</param>
-    /// <param name="isValid">Whether placement is valid at this position</param>
     public void UpdatePosition(Vector3 position, bool isValid = true)
     {
         _currentState?.UpdatePosition(position, isValid);
     }
 
     /// <summary>
-    /// Rotates the preview around the specified pivot.
-    /// Called when player presses rotation key (R).
+    /// Applies yaw rotation to the active preview around the target grid pivot
     /// </summary>
     public void UpdateRotation(Vector3 pivot)
     {
         _currentState?.RotatePreview(pivot);
-
     }
 
     /// <summary>
-    /// Destroys current preview and clears state.
-    /// Called when building state ends.
+    /// Cleans up current preview instances and resets state context
     /// </summary>
     public void StopShowingPreview()
     {
@@ -148,20 +118,12 @@ public class PreviewSystem : MonoBehaviour
 
     #region Legacy Compatibility (Deprecated)
 
-    /// <summary>
-    /// DEPRECATED: Legacy method for backward compatibility.
-    /// Use StartShowingGridPreview() instead.
-    /// </summary>
     [System.Obsolete("Use StartShowingGridPreview() instead")]
     public void StartShowingPlacementPreview(GameObject prefab)
     {
         StartShowingGridPreview(prefab, Vector3.zero);
     }
 
-    /// <summary>
-    /// DEPRECATED: Legacy method for backward compatibility.
-    /// Use StartShowingGridRemovalPreview() instead.
-    /// </summary>
     [System.Obsolete("Use StartShowingGridRemovalPreview() instead")]
     public void StartShowingRemovePreview()
     {
@@ -172,22 +134,8 @@ public class PreviewSystem : MonoBehaviour
 }
 
 /// <summary>
-/// Preview state for rectangle drag-fill placement and removal of grid objects.
-/// Displays a single resizable cube spanning the drag rectangle between the
-/// drag origin (set via StartShowingPreview) and the current cursor cell
-/// (set via each UpdatePosition call).
-///
-/// DESIGN RATIONALE:
-/// Reuses the existing valid/invalid materials rather than introducing new
-/// Inspector fields. Implements IPreviewState so it plugs into PreviewSystem's
-/// existing state-pattern machinery unchanged - no changes to the interface
-/// or to PreviewSystem's delegation logic were required.
-///
-/// ASSUMPTION:
-/// Grid cell size is 1 world unit in X/Z, matching the tile-center (+0.5)
-/// convention already used by GridRemovalPreview and GridSnapToView. If your
-/// Grid's cellSize differs, the cube math below needs a matching cellSize
-/// multiplier.
+/// Renders dynamic area selection box during multi-cell drag operations
+/// Scales a primitive cube across cells bounded by drag origin and active cursor cell
 /// </summary>
 public class GridMultiPlacePreview : IPreviewState
 {
@@ -206,15 +154,11 @@ public class GridMultiPlacePreview : IPreviewState
         _yOffset = yOffset;
     }
 
-    /// <summary>
-    /// Begins the drag preview. The prefab parameter is intentionally unused -
-    /// the bounds preview is always a primitive cube, never the actual object
-    /// prefab, since it may span many cells with different objects underneath.
-    /// </summary>
     public void StartShowingPreview(GameObject prefab, Vector3 position)
     {
         _originCell = Vector3Int.RoundToInt(position);
 
+        // Batch preview uses primitive bounds scaling rather than instantiating individual prefabs
         _previewObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
         _previewObject.name = "GridMultiPlacePreview";
 
@@ -227,11 +171,6 @@ public class GridMultiPlacePreview : IPreviewState
         ResizeToCells(_originCell, _originCell, true);
     }
 
-    /// <summary>
-    /// Resizes and repositions the cube to span from the drag origin to the
-    /// cell nearest the given world position, and swaps the valid/invalid
-    /// material based on isValid.
-    /// </summary>
     public void UpdatePosition(Vector3 position, bool isValid)
     {
         if (_previewObject == null)
@@ -243,7 +182,7 @@ public class GridMultiPlacePreview : IPreviewState
 
     public void RotatePreview(Vector3 pivot)
     {
-        // Rectangle drag previews don't rotate - out of scope for this phase.
+        // Unused: Area selection box is axis-aligned along grid cells
     }
 
     public void StopShowingPreview()
@@ -271,14 +210,7 @@ public class GridMultiPlacePreview : IPreviewState
         float centerX = minX + (sizeX * 0.5f);
         float centerZ = minZ + (sizeZ * 0.5f);
 
-        // BUG FIX: previously used `a.y` (the drag origin's height, captured
-        // once at StartShowingPreview and never revisited), so if build
-        // height changed while this preview was active, the cube's vertical
-        // position stayed frozen at the OLD height. `b` is always the most
-        // recent cell passed into UpdatePosition, so using b.y here means
-        // the cube's height updates immediately whenever build height
-        // changes - whether that change comes from mouse movement or from
-        // PlacementSystem recomputing the position after a Page Up/Down.
+        // Use target cell Y (b.y) so vertical elevation updates immediately on floor level changes
         _previewObject.transform.position = new Vector3(centerX, b.y + _yOffset, centerZ);
         _previewObject.transform.localScale = new Vector3(sizeX, 0.1f, sizeZ);
 

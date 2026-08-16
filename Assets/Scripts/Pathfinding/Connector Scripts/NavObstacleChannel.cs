@@ -3,37 +3,22 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Plain C# implementation of INavObstacleChannel - not a MonoBehaviour and
-/// not backed by ScriptableObject/UnityEvent, per the design doc's
-/// performance rationale (§3.4): this channel can see many calls in a single
-/// frame during a large multi-placement drag, and reflection-backed
-/// UnityEvent invocation lists aren't worth paying for here.
-/// 
-/// Hosted and exposed via NavigationService, not a bare static singleton, so
-/// other MonoBehaviours can wire it up through the Inspector the same way
-/// every other system in this project references its dependencies.
-/// 
-/// THREAD SAFETY: none yet - all calls are expected on the main thread. This
-/// is fine through Phase 1; Phase 3 introducing Burst jobs against a NavGrid
-/// snapshot needs revisiting how job-thread reads interact with main-thread
-/// writes here, but that's a NavGrid-side concern (double-buffering), not
-/// something this class needs to solve itself.
+/// Instantiated and exposed by NavigationService. Main-thread execution only.
 /// </summary>
 public class NavObstacleChannel : INavObstacleChannel
 {
-    // Cell obstacles: refcounted by key, no id needed (see interface docs).
+    // Refcount tracking for static cell obstacles
     private readonly Dictionary<Vector3Int, int> _cellObstacleRefCounts = new();
     private readonly HashSet<Vector3Int> _floorPresentCells = new();
 
-    // Anonymous edge obstacles (ordinary walls): refcounted by key.
+    // Refcount tracking for static wall edges
     private readonly Dictionary<NavEdge, int> _edgeObstacleRefCounts = new();
 
-    // Id-aware edge obstacles (doors): tracked separately since their
-    // contribution to "is this edge blocked" is a toggle, not a count.
+    // Dynamic edge state tracking (e.g., doors) keyed by ID
     private readonly Dictionary<NavObstacleId, NavEdge> _idToEdge = new();
     private readonly Dictionary<NavObstacleId, bool> _idPassableState = new();
 
-    // Nav links (stairs/elevators).
+    // Inter-level links (stairs, elevators)
     private readonly Dictionary<NavObstacleId, NavLinkRecord> _navLinks = new();
 
     private int _nextId = 0;
@@ -108,10 +93,7 @@ public class NavObstacleChannel : INavObstacleChannel
     {
         NavEdge edge = new NavEdge(cellA, cellB);
         _idToEdge[id] = edge;
-        // Deliberately no default passable state here - caller must call
-        // SetObstaclePassable to establish it (see interface docs). No dirty
-        // event fired yet either, since nothing about the edge's blocked
-        // state has actually changed until that first SetObstaclePassable.
+        // Binds ID to edge topology; passability initialization and dirty notification are deferred to SetObstaclePassable.
     }
 
     public void UnregisterEdgeObstacle(NavObstacleId id)
@@ -133,7 +115,7 @@ public class NavObstacleChannel : INavObstacleChannel
         if (!_idToEdge.TryGetValue(id, out NavEdge edge))
         {
             Debug.LogWarning($"NavObstacleChannel: SetObstaclePassable called with an id that was never " +
-                              $"registered via the id-aware RegisterEdgeObstacle overload ({id}). Ignored.");
+                             $"registered via the id-aware RegisterEdgeObstacle overload ({id}). Ignored.");
             return;
         }
 
@@ -173,11 +155,7 @@ public class NavObstacleChannel : INavObstacleChannel
             return true;
         }
 
-        // Linear scan over id-registered edges (doors) - fine while door
-        // counts are small (Phase 4 scope). If this ever shows up in a
-        // profile once doors are numerous, add a NavEdge -> NavObstacleId
-        // reverse lookup alongside _idToEdge rather than optimizing
-        // pre-emptively now.
+        // scan over dynamic edges.
         foreach (var kvp in _idToEdge)
         {
             if (!kvp.Value.Equals(edge))
@@ -188,6 +166,23 @@ public class NavObstacleChannel : INavObstacleChannel
         }
 
         return false;
+    }
+
+    #endregion
+
+    #region Save System Support
+
+    /// <summary>
+    /// Resets all obstacle registries without raising dirty events. Preserves _nextId to prevent ID collisions on load.
+    /// </summary>
+    public void Clear()
+    {
+        _cellObstacleRefCounts.Clear();
+        _floorPresentCells.Clear();
+        _edgeObstacleRefCounts.Clear();
+        _idToEdge.Clear();
+        _idPassableState.Clear();
+        _navLinks.Clear();
     }
 
     #endregion

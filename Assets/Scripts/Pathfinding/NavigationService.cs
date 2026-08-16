@@ -1,17 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Scene entry point for the navigation system. Owns the obstacle channel
-/// (plain C#, performance reasons documented on NavObstacleChannel) and the
-/// NavGrid built on top of it, giving every other Nav component
-/// (BuildingNavBridge, PathRequestManager, and later PathfindingAgents) the
-/// same Inspector-assignable integration point the rest of the project
-/// already uses (PlacementSystem, PreviewSystem, ObjectPlacer).
-/// 
-/// INSPECTOR SETUP:
-/// - Assign a PathfindingSettings asset (chunk size, heuristic weights,
-///   budgets, jitter range).
-/// - Place exactly one of these in the scene.
+/// Scene entry point for the navigation system. Manages the lifetime of the
+/// obstacle channel and navigation grid instance using configured settings.
 /// </summary>
 public class NavigationService : MonoBehaviour
 {
@@ -20,18 +11,15 @@ public class NavigationService : MonoBehaviour
     private NavObstacleChannel _obstacleChannel;
     private NavGrid _navGrid;
 
-    /// <summary>Exposed as the interface, not the concrete type - consumers should only ever depend on INavObstacleChannel.</summary>
     public INavObstacleChannel ObstacleChannel => _obstacleChannel;
-
     public NavGrid NavGrid => _navGrid;
-
     public PathfindingSettings Settings => _settings;
 
     private void Awake()
     {
         if (_settings == null)
         {
-            Debug.LogError("NavigationService: no PathfindingSettings assigned - assign one in the Inspector. Disabling.");
+            Debug.LogError("NavigationService: PathfindingSettings missing. Disabling service.", this);
             enabled = false;
             return;
         }

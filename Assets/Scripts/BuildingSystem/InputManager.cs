@@ -3,10 +3,10 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.EventSystems;
 using UnityEngine;
-using UnityEngine.InputSystem; // Added for the new Input System
+using UnityEngine.InputSystem;
 
 /// <summary>
-/// Handles all logic regarding player input
+/// Hardware input bridge that blocks gameplay actions when cursor hovers over UI
 /// </summary>
 public class InputManager : MonoBehaviour
 {
@@ -59,9 +59,7 @@ public class InputManager : MonoBehaviour
     private Vector3 lastPosition;
 
     /// <summary>
-    /// Returns the mouse's projected position on the ground plane (world Y = 0).
-    /// Equivalent to GetSelectedMapPositionAtHeight(0f). Kept for any caller
-    /// that only ever needs ground-level detection.
+    /// Ground-level shortcut targeting Y=0 plane
     /// </summary>
     public Vector3 GetSelectedMapPosition()
     {
@@ -69,19 +67,8 @@ public class InputManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Returns the mouse's projected position on a horizontal plane at the
-    /// given world-space height.
-    /// 
-    /// MULTI-LEVEL: When build height changes (Page Up/Down) without the
-    /// mouse moving on screen, the X/Z the cursor is "aiming at" on the NEW
-    /// height's plane is generally different from the X/Z it was aiming at
-    /// on the OLD plane, because the camera is pitched rather than a
-    /// top-down orthographic view. Re-raycasting against the plane at the
-    /// requested height (rather than only patching the Y of a previously
-    /// cached position) keeps the preview aligned with the actual cursor
-    /// position at every height.
+    /// Projects cursor ray onto arbitrary Y-plane to correct camera pitch parallax when shifting elevation
     /// </summary>
-    /// <param name="height">World-space Y to project onto.</param>
     public Vector3 GetSelectedMapPositionAtHeight(float height)
     {
         var mouse = Mouse.current;

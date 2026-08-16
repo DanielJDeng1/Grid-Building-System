@@ -2,35 +2,19 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Manages mesh-chunked Floor grid objects using simple spatial bucketing - a Floor object's
-/// chunk is determined purely by which (chunkX, buildHeightY, chunkZ) bucket its position
-/// falls into. There is no contiguity requirement for floors (unlike walls - see
-/// WallChunkManager), since floors never need to be independently toggled/hidden.
-///
-/// Furniture and Ceiling grid objects are NOT chunked and continue to be handled by
-/// ObjectPlacer's existing per-object instantiation path.
-///
-/// ARCHITECTURE:
-/// Chunked entries are never instantiated as GameObjects. ObjectPlacer bakes a world
-/// transform matrix for each placement and hands it here along with the prefab reference;
-/// this class stores it, buckets it into the correct chunk by world position, and rebuilds
-/// that chunk's single combined mesh on a batched end-of-frame pass (see LateUpdate).
-///
-/// CHUNK KEY:
-/// Chunks are keyed by (chunkX, buildHeightY, chunkZ) - the Y-level is NOT divided into the
-/// chunk grid, so each build floor level gets its own independent set of chunks. This matches
-/// how floors are already placed at discrete, exact Y heights.
+/// Manages mesh-chunked floor grid objects using spatial bucketing.
+/// Chunks are determined by 2D tile position and Y build height level.
 /// </summary>
 public class FloorChunkManager : MonoBehaviour, IChunkOwner
 {
     [Header("Chunking")]
-    [Tooltip("Chunk width/depth in tiles (X/Z). Does not affect Y - each build height level is chunked independently.")]
+    [Tooltip("Chunk width and depth in tiles (X/Z). Y levels are chunked independently.")]
     [SerializeField] private int _chunkSize = 16;
 
-    [Tooltip("Optional parent transform for generated chunk mesh GameObjects. Defaults to this GameObject's transform.")]
+    [Tooltip("Transform parent for generated chunk mesh GameObjects")]
     [SerializeField] private Transform _chunkParent;
 
-    [Tooltip("Generates one BoxCollider per placed floor tile (not one per chunk - floor chunks aren't guaranteed contiguous, so a single bounding box could create false collision over gaps/holes in irregular room shapes).")]
+    [Tooltip("Generates individual BoxColliders per floor tile to prevent false collisions over irregular gaps")]
     [SerializeField] private bool _generateColliders = true;
 
     private readonly Dictionary<Vector3Int, Chunk> _chunks = new();
@@ -40,12 +24,8 @@ public class FloorChunkManager : MonoBehaviour, IChunkOwner
     #region Public API
 
     /// <summary>
-    /// Registers a chunked Floor placement.
+    /// Registers a floor placement into the corresponding spatial chunk
     /// </summary>
-    /// <param name="prefab">Prefab asset reference (NOT instantiated).</param>
-    /// <param name="anchorPosition">World placement position - determines which chunk this entry belongs to.</param>
-    /// <param name="worldMatrix">Baked world transform, see ChunkRotationMath.</param>
-    /// <returns>A negative handle (from ChunkHandleRegistry) for later removal.</returns>
     public int AddEntry(GameObject prefab, Vector3 anchorPosition, Matrix4x4 worldMatrix)
     {
         Vector3Int chunkCoord = GetChunkCoord(anchorPosition);
@@ -60,8 +40,7 @@ public class FloorChunkManager : MonoBehaviour, IChunkOwner
     }
 
     /// <summary>
-    /// Removes a previously-added entry and marks its chunk dirty for rebuild.
-    /// Called by ChunkHandleRegistry - do not call directly from ObjectPlacer.
+    /// Removes a floor entry and cleans up empty chunks if necessary
     /// </summary>
     public void RemoveEntry(int handle)
     {
@@ -94,8 +73,7 @@ public class FloorChunkManager : MonoBehaviour, IChunkOwner
     }
 
     /// <summary>
-    /// Integer division that rounds toward negative infinity instead of toward zero, so
-    /// negative tile coordinates fall into the correct (negative) chunk.
+    /// Integer division rounding toward negative infinity for correct negative coordinate bucketing
     /// </summary>
     private static int FloorDiv(int a, int b)
     {
@@ -139,8 +117,7 @@ public class FloorChunkManager : MonoBehaviour, IChunkOwner
     #region Batched Rebuild
 
     /// <summary>
-    /// Rebuilds every dirty chunk once per frame, regardless of how many placements/removals
-    /// touched it this frame.
+    /// Rebuilds all dirty chunks once per frame in a batched pass
     /// </summary>
     private void LateUpdate()
     {

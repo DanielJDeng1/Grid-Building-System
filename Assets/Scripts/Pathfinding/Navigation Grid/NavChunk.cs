@@ -1,16 +1,6 @@
 /// <summary>
-/// One fixed-size chunk of NavGrid storage. Lazily created by NavFloor on
-/// first registration inside its bounds - an absent chunk means "unbuilt",
-/// which is the same thing as "unwalkable" given floor presence is required
-/// for walkability anyway.
-/// 
-/// Per-cell data is packed into a single byte: one walkable bit, four
-/// cardinal edge-blocked bits. Diagonal-move legality (§8 corner-cutting) is
-/// derived from these same four bits at query time - no separate storage.
-/// 
-/// _localRegionId is a parallel array used by NavRegionGraph for intra-chunk
-/// connectivity (flood-fill result) - kept alongside the flags rather than
-/// in a separate dictionary for locality, since both are indexed identically.
+/// Fixed-size grid storage chunk holding bit-packed cell flags and parallel local region IDs for spatial queries and flood-fills.
+/// Unallocated chunks indicate unbuilt, unwalkable space.
 /// </summary>
 public class NavChunk
 {

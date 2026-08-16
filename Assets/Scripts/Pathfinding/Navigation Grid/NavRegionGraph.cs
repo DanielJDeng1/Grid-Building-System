@@ -2,12 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Identifies one connected component within one chunk on one floor.
-/// Deliberately NOT globally unique across rebuilds - a chunk rebuild
-/// reassigns fresh local component indices, and NavRegionGraph discards and
-/// recreates the corresponding nodes each time rather than trying to
-/// preserve identity across rebuilds. Nothing outside a single rebuild pass
-/// should hold onto one of these.
+/// Identifies a local connected component within a single spatial chunk.
+/// Transient handle local to chunk state; node references are discarded and regenerated during chunk rebuilds.
 /// </summary>
 public readonly struct RegionNodeId
 {
@@ -34,28 +30,15 @@ public readonly struct RegionNodeId
 }
 
 /// <summary>
-/// Region connectivity, two-tiered to match the chunk structure (design doc
-/// §4). Intra-chunk components are found via flood-fill bounded to one
-/// chunk's cells; a coarse adjacency graph over (chunk, component) nodes
-/// connects those components across chunk borders and via NavLinks.
-/// 
-/// DELETION HANDLING: since this is a plain adjacency graph rather than a
-/// union-find, there's no "un-union" problem - rebuilding a chunk simply
-/// discards its old nodes (and any edges referencing them, including the
-/// reverse edges held by neighboring chunks) and recomputes fresh ones. This
-/// is what makes both additions and removals equally cheap and equally
-/// correct, at the cost of a plain BFS at query time instead of a union-find
-/// lookup - acceptable since reachability is checked per pathfinding
-/// request, not per frame, and the graph itself stays coarse (one node per
-/// component, not per cell).
+/// Coarse topological adjacency graph mapping connectivity across chunk boundaries and navigation links.
+/// Supports cheap BFS reachability validation prior to detailed A* search execution.
 /// </summary>
 public class NavRegionGraph
 {
     private readonly NavGrid _navGrid;
     private readonly Dictionary<RegionNodeId, HashSet<RegionNodeId>> _adjacency = new();
 
-    // NavLinks pending re-attachment - populated by NavGrid's channel
-    // subscription, consumed whenever the relevant chunk is (re)built.
+    // Active cross-chunk or vertical links awaiting attachment during chunk rebuilds
     private readonly List<(NavObstacleId id, Vector3Int cellA, Vector3Int cellB)> _navLinks = new();
 
     public NavRegionGraph(NavGrid navGrid)
@@ -91,21 +74,12 @@ public class NavRegionGraph
             return;
 
         Vector2Int chunkCoord = floor.GetChunkCoord(cell.x, cell.z);
-        // Standalone rebuild (not part of a batched dirty-chunk pass), so
-        // both phases run back-to-back here rather than being split across
-        // NavGrid's two-pass loop.
         RebuildIntraChunkComponents(cell.y, chunkCoord);
         ConnectChunkToNeighbors(cell.y, chunkCoord);
     }
 
     /// <summary>
-    /// Phase 1 of a chunk rebuild: recomputes local components via
-    /// flood-fill only. Does NOT connect to neighboring chunks yet - see
-    /// ConnectChunkToNeighbors. Split into two phases so NavGrid can rebuild
-    /// every dirty chunk's own components first, across a whole batch,
-    /// before any chunk tries to read a neighbor's data - otherwise
-    /// processing order within a batch of simultaneously-dirtied adjacent
-    /// chunks could read stale neighbor state.
+    /// Phase 1 rebuild: Computes isolated local components within chunk boundaries via local flood-fill.
     /// </summary>
     public void RebuildIntraChunkComponents(int height, Vector2Int chunkCoord)
     {
@@ -147,11 +121,11 @@ public class NavRegionGraph
                     foreach (var neighbor in neighborBuffer)
                     {
                         if (neighbor.Cell.y != height)
-                            continue; // cross-floor links handled separately, below
+                            continue;
 
                         Vector2Int neighborChunkCoord = floor.GetChunkCoord(neighbor.Cell.x, neighbor.Cell.z);
                         if (neighborChunkCoord != chunkCoord)
-                            continue; // outside this chunk - handled by ConnectChunkToNeighbors
+                            continue;
 
                         floor.GetLocalCoord(neighbor.Cell.x, neighbor.Cell.z, out int nlx, out int nlz);
                         if (chunk.GetLocalRegionId(nlx, nlz) != NavChunk.NoRegion)
@@ -166,11 +140,7 @@ public class NavRegionGraph
     }
 
     /// <summary>
-    /// Phase 2 of a chunk rebuild: connects this chunk's freshly-computed
-    /// components to its neighbors' components and to any NavLinks touching
-    /// it. Call only after RebuildIntraChunkComponents has already been
-    /// called for every chunk in the current dirty batch (see NavGrid.
-    /// ProcessDirtyChunks for the two-pass loop this depends on).
+    /// Phase 2 rebuild: Binds local chunk nodes to surrounding chunk components and registered NavLinks.
     /// </summary>
     public void ConnectChunkToNeighbors(int height, Vector2Int chunkCoord)
     {
@@ -198,7 +168,7 @@ public class NavRegionGraph
             Vector2Int neighborChunkCoord = chunkCoord + offset;
             NavChunk neighborChunk = floor.GetChunkOrNull(neighborChunkCoord);
             if (neighborChunk == null)
-                continue; // neighbor unbuilt - nothing to connect to yet; it will connect back to us when it's built
+                continue;
 
             for (int lz = 0; lz < chunk.Size; lz++)
             {
@@ -285,10 +255,7 @@ public class NavRegionGraph
     }
 
     /// <summary>
-    /// Answers "does any path exist" via BFS over the coarse region graph -
-    /// deliberately not a search over individual cells, since the graph is
-    /// small (one node per connected component, not per cell) even on a
-    /// large built-up world.
+    /// Performs BFS across component nodes to verify macroscopic reachability without tile-level pathfinding.
     /// </summary>
     public bool AreConnected(RegionNodeId a, RegionNodeId b)
     {

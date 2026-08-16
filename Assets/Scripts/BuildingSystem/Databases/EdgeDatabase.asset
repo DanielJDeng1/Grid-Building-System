@@ -21,31 +21,19 @@ MonoBehaviour:
     shouldChunk: 0
   - name: Wall
     positionsFilled: 00000000
-    prefab: {fileID: 1091495076126864961, guid: 885e76514b2f8ce42a942ecf68af8b51, type: 3}
-    ID: 1
-    buildType: 1
-    shouldChunk: 1
-  - name: Wall
-    positionsFilled: 00000000
     prefab: {fileID: 1091495076126864961, guid: 13f6c91e72c6e314cb3adc4a22179db2, type: 3}
-    ID: 2
-    buildType: 1
-    shouldChunk: 1
-  - name: Wall
-    positionsFilled: 00000000ffffffff
-    prefab: {fileID: 4793896007788827952, guid: 045cfb1c176ceaf4894b034b756184c0, type: 3}
-    ID: 3
+    ID: 1
     buildType: 1
     shouldChunk: 1
   - name: Office Divider
     positionsFilled: 00000000
     prefab: {fileID: 2706650624338796685, guid: 1005d76981d06604888cbfca3198e6dc, type: 3}
-    ID: 4
+    ID: 2
     buildType: 1
     shouldChunk: 0
   - name: Hand Rails
     positionsFilled: 00000000ffffffff
     prefab: {fileID: 6584966631308284611, guid: 4bdf3aaceddf7064a8c1202c013126a7, type: 3}
-    ID: 5
+    ID: 3
     buildType: 1
     shouldChunk: 0

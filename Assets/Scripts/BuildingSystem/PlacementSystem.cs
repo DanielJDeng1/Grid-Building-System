@@ -1,85 +1,11 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 /// <summary>
-/// Main controller for the grid-based building system.
-/// Manages building state transitions and input event binding.
-/// 
-/// SUPPORTED MODES:
-/// - Grid object placement (floors, furniture, ceilings) - Floor/Ceiling support rectangle drag-fill
-/// - Grid object removal - supports rectangle drag-removal
-/// - Edge object placement (walls, fences, railings) - single-click only
-/// - Edge object removal - single-click only
-/// - Wall opening placement (doors, windows) - single-click only, requires a chunked wall
-///   already present at the target tile(s) - see WallOpeningState
-/// - Wall opening removal - single-click only, restores the host wall's original mesh - see
-///   WallOpeningRemovalState
-/// 
-/// DRAG INPUT FLOW:
-/// - Mouse down  -> OnActionStart(gridPosition): records drag origin (if the active state supports it)
-/// - Mouse held  -> OnHold(gridPosition): every frame, drives the drag/bounds preview
-/// - Mouse up    -> OnAction(gridPosition): commits the action (single cell/edge, or full rectangle)
-/// This mirrors IBuildingState exactly, so the input flow adapts per-state without
-/// PlacementSystem needing to know which states support dragging.
-/// 
-/// MULTI-LEVEL BUILDING:
-/// Uses an offset-based system where placement Y-coordinate is determined by _currentBuildHeight
-/// (in grid cell units). Build height can be changed via public methods
-/// (IncreaseBuildHeight/DecreaseBuildHeight). Y-level increments are configurable via
-/// _buildHeightIncrement (default: 3 units).
-/// 
-/// MULTI-LEVEL PREVIEW/CURSOR FIX:
-/// RefreshPreviewAtCurrentHeight() recomputes the cursor's grid position FROM SCRATCH via
-/// GetCurrentGridPosition() every time build height changes - it does not just patch the Y
-/// of a previously cached position. This matters because the camera is pitched (not a
-/// top-down orthographic view): the X/Z the cursor is aiming at on the OLD height's plane is
-/// generally different from the X/Z it aims at on the NEW height's plane, even though the
-/// mouse hasn't moved on screen. It also routes to OnHold (not UpdateState) while a drag is
-/// active, so the multi-place/multi-removal rectangle preview updates through the same path
-/// it normally would.
-/// 
-/// CAMERA / GRID VISUAL INTEGRATION:
-/// OnBuildHeightChanged fires (with the new WORLD-SPACE height, via Grid.CellToWorld)
-/// whenever build height changes, so BuilderCameraController and GridSnapToView can react
-/// (camera fly-to, grid visualization repositioning) without PlacementSystem needing any
-/// reference to either of them.
-/// 
-/// ARCHITECTURE:
-/// Uses State pattern to handle different building modes.
-/// Each mode (GridState, EdgeState, GridRemovalState, EdgeRemovalState, WallOpeningState,
-/// WallOpeningRemovalState) encapsulates its own logic for placement, validation, and preview.
-/// 
-/// INPUT BINDING:
-/// PlacementSystem subscribes to InputManager events and delegates
-/// to the active building state. Events are unsubscribed when state changes.
-/// 
-/// SAFETY FIX:
-/// Now validates object/edge/opening IDs before creating states to prevent
-/// constructor exceptions from leaving the system in a broken state.
-/// 
-/// WALL OPENING INTEGRATION:
-/// _wallOpeningLink is constructed once in Awake (alongside the GridData layers) and lives for
-/// the lifetime of this component. It subscribes to OnEdgeOccupancyChanged on every GridData
-/// layer that can host a wall, so a wall removed/overridden through ANY state - not just
-/// WallOpeningRemovalState - correctly cascade-removes any opening embedded in it. See
-/// WallOpeningLinkService's own doc comment for the full rationale.
-/// 
-/// INSPECTOR SETUP:
-/// - Assign InputManager reference
-/// - Assign Grid component (Unity's Grid)
-/// - Assign ObjectDatabase ScriptableObject
-/// - Assign EdgeDatabase ScriptableObject
-/// - Assign WallOpeningDatabase ScriptableObject (required for StartWallOpeningPlacement)
-/// - Assign GridVisualization GameObject
-/// - Assign ObjectPlacer component
-/// - Assign WallChunkManager component - MUST be the same instance referenced by ObjectPlacer's
-///   own WallChunkManager field, since wall openings cut tiles through this reference directly
-/// - Assign PreviewSystem component
-/// - Configure buildHeightIncrement (e.g., 3 for floors every 3 units)
-/// - To enable camera fly-to and grid-visual height tracking, assign THIS
-///   PlacementSystem in BuilderCameraController's and GridSnapToView's
-///   Inspector reference fields. Both log a warning on Awake/OnEnable if
-///   left unassigned, since that failure mode is otherwise silent.
+/// Main controller for the grid building system.
+/// Manages active placement states, multi-floor elevation, input routing, and save/load replay.
 /// </summary>
 public class PlacementSystem : MonoBehaviour
 {
@@ -91,24 +17,21 @@ public class PlacementSystem : MonoBehaviour
     [SerializeField] private GameObject _gridVisualization;
     [SerializeField] private ObjectPlacer _objectPlacer;
     [SerializeField] private PreviewSystem _previewSystem;
-    [Tooltip("Required for stair/elevator placement (TraversalState) - it needs INavObstacleChannel to register the NavLink at placement time.")]
+    [Tooltip("Required for stair/elevator placement to register obstacle channels and nav links.")]
     [SerializeField] private NavigationService _navigationService;
 
     [Header("Wall Openings")]
     [SerializeField] private WallOpeningDatabase _wallOpeningDatabase;
-    [Tooltip("Must be the SAME WallChunkManager instance assigned on ObjectPlacer - wall openings cut wall tiles through this reference directly.")]
+    [Tooltip("Must match ObjectPlacer's instance so wall openings modify the active host meshes.")]
     [SerializeField] private WallChunkManager _wallChunkManager;
 
     [Header("Multi-Level Building")]
-    [SerializeField] private int _buildHeightIncrement = 3; // Y-units per floor level
-    [SerializeField] private int _minBuildHeight = 0; // Minimum Y-level (ground)
-    [SerializeField] private int _maxBuildHeight = 30; // Maximum Y-level (10 floors at increment of 3)
+    [SerializeField] private int _buildHeightIncrement = 3; // Cell Y offset per floor level
+    [SerializeField] private int _minBuildHeight = 0;
+    [SerializeField] private int _maxBuildHeight = 30; // Max Y offset (10 floors at 3u increment)
 
     /// <summary>
-    /// Fired whenever the active build height changes, carrying the new
-    /// height already converted to WORLD SPACE (via Grid.CellToWorld) so
-    /// listeners like the camera or the grid visualization never need to
-    /// know about grid cell sizing.
+    /// Emitted when floor elevation changes. Supplies target Y position in world space.
     /// </summary>
     public event Action<float> OnBuildHeightChanged;
 
@@ -120,32 +43,14 @@ public class PlacementSystem : MonoBehaviour
 
     private WallOpeningLinkService _wallOpeningLink;
 
-    // NULLABLE FIX: Use nullable instead of sentinel value
     private Vector3Int? _lastDetectedPosition = null;
 
     private IBuildingState _buildingState;
 
-    // MULTI-LEVEL: Current build height offset (in grid cell units)
     private int _currentBuildHeight = 0;
 
-    // DRAG INPUT: True from mouse-down until mouse-up. Drives whether Update()
-    // (and RefreshPreviewAtCurrentHeight) calls OnHold (dragging) or
-    // UpdateState (plain hover) each frame.
     private bool _isHolding = false;
 
-    /// <summary>
-    /// NAV BRIDGE INTEGRATION: initialized in Awake() rather than Start() so
-    /// that ANY other script's Start() - including BuildingNavBridge, which
-    /// needs to subscribe to these instances' occupancy events - is
-    /// guaranteed to see them already constructed. Unity guarantees every
-    /// Awake() in the scene completes before any Start() runs, so this
-    /// removes the dependency on script execution order entirely rather
-    /// than working around it.
-    /// 
-    /// WallOpeningLinkService is constructed here for the same reason - it
-    /// subscribes to these same GridData instances' OnEdgeOccupancyChanged
-    /// event, and needs them to already exist.
-    /// </summary>
     private void Awake()
     {
         _floorData = new();
@@ -162,24 +67,10 @@ public class PlacementSystem : MonoBehaviour
         _wallOpeningLink?.Dispose();
     }
 
-    /// <summary>
-    /// Read-only access to the three build layers, for systems that need to
-    /// observe placement/removal without participating in it - currently
-    /// BuildingNavBridge and WallOpeningLinkService. Exposed here rather
-    /// than handed out piecemeal so there's a single, obvious integration
-    /// point.
-    /// </summary>
     public GridData FloorData => _floorData;
     public GridData FurnitureData => _furnitureData;
     public GridData CeilingData => _ceilingData;
-
-    /// <summary>
-    /// The stairs/elevators footprint layer. Deliberately NOT subscribed to
-    /// by BuildingNavBridge like the other three - TraversalState registers
-    /// its NavLink directly with INavObstacleChannel at placement time
-    /// (design doc §5), so routing this layer's occupancy events through the
-    /// generic translation path too would double-handle the same placement.
-    /// </summary>
+    public GridData CeilingFurnitureData => _ceilingFurnitureData;
     public GridData TraversalData => _traversalData;
 
     private void Start()
@@ -189,10 +80,6 @@ public class PlacementSystem : MonoBehaviour
 
     #region Multi-Level Build Height Control
 
-    /// <summary>
-    /// Increases the build height by one floor level.
-    /// Call this method from UI buttons, input events, or other systems.
-    /// </summary>
     public void IncreaseBuildHeight()
     {
         int newHeight = _currentBuildHeight + _buildHeightIncrement;
@@ -211,10 +98,6 @@ public class PlacementSystem : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Decreases the build height by one floor level.
-    /// Call this method from UI buttons, input events, or other systems.
-    /// </summary>
     public void DecreaseBuildHeight()
     {
         int newHeight = _currentBuildHeight - _buildHeightIncrement;
@@ -233,11 +116,6 @@ public class PlacementSystem : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Sets the build height to a specific Y-level.
-    /// Useful for UI sliders or direct level selection.
-    /// </summary>
-    /// <param name="height">Target Y-level (will be clamped to min/max)</param>
     public void SetBuildHeight(int height)
     {
         _currentBuildHeight = Mathf.Clamp(height, _minBuildHeight, _maxBuildHeight);
@@ -247,33 +125,17 @@ public class PlacementSystem : MonoBehaviour
         NotifyBuildHeightChanged();
     }
 
-    /// <summary>
-    /// Returns the current build height (Y-level) in grid units.
-    /// Use this for UI display (e.g., "Floor: 2" when height is 6 and increment is 3).
-    /// </summary>
     public int GetCurrentBuildHeight()
     {
         return _currentBuildHeight;
     }
 
-    /// <summary>
-    /// Returns the current floor number (0-indexed).
-    /// Example: If height is 6 and increment is 3, this returns 2 (third floor).
-    /// </summary>
     public int GetCurrentFloorNumber()
     {
         return _currentBuildHeight / _buildHeightIncrement;
     }
 
-    /// <summary>
-    /// Refreshes the preview/cursor position when build height changes.
-    /// 
-    /// FIX: Recomputes the grid position FROM SCRATCH via GetCurrentGridPosition()
-    /// (a fresh raycast against the NEW height's plane) rather than patching the Y
-    /// of the previously cached _lastDetectedPosition. Also routes to OnHold instead
-    /// of UpdateState while a drag is active, so the multi-place/removal rectangle
-    /// preview (which only updates via OnHold) is refreshed correctly too.
-    /// </summary>
+    // Re-raycasts target cell on height changes to account for angled camera perspective
     private void RefreshPreviewAtCurrentHeight()
     {
         if (_buildingState == null)
@@ -293,23 +155,11 @@ public class PlacementSystem : MonoBehaviour
         _lastDetectedPosition = updatedPosition;
     }
 
-    /// <summary>
-    /// Fires OnBuildHeightChanged with the current build height converted to
-    /// world space. Kept as one method so every height-change entry point
-    /// notifies listeners identically.
-    /// </summary>
     private void NotifyBuildHeightChanged()
     {
         OnBuildHeightChanged?.Invoke(GetCurrentBuildWorldHeight());
     }
 
-    /// <summary>
-    /// Converts _currentBuildHeight (grid cell units) to world-space Y via
-    /// Grid.CellToWorld - the same conversion already used everywhere else in
-    /// this system to position placed objects, so height-following code stays
-    /// consistent with where objects actually end up in the scene. Public
-    /// because the camera and GridSnapToView both need this to stay in sync.
-    /// </summary>
     public float GetCurrentBuildWorldHeight()
     {
         return _grid.CellToWorld(new Vector3Int(0, _currentBuildHeight, 0)).y;
@@ -319,14 +169,8 @@ public class PlacementSystem : MonoBehaviour
 
     #region State Activation
 
-    /// <summary>
-    /// Activates grid object placement mode.
-    /// SAFETY FIX: Validates ID before state creation to prevent broken state.
-    /// </summary>
-    /// <param name="ID">Object ID from ObjectDatabase</param>
     public void StartPlacement(int ID)
     {
-        // Validate ID before state transition
         int objectIndex = _objectDatabase.objectsData.FindIndex(data => data.ID == ID);
         if (objectIndex < 0)
         {
@@ -352,19 +196,6 @@ public class PlacementSystem : MonoBehaviour
         BindInputEvents();
     }
 
-    /// <summary>
-    /// Activates stair/elevator placement mode (design doc §5). Same
-    /// ID-validation-before-transition safety pattern as StartPlacement.
-    /// 
-    /// KNOWN GAP: as noted on TraversalState itself, nothing here persists
-    /// the NavObstacleId TraversalState allocates on placement, which blocks
-    /// removal (a future StartTraversalRemoving/TraversalRemovalState) from
-    /// being able to call INavObstacleChannel.UnregisterNavLink. Flagging
-    /// again at the call site since this method will need to change once
-    /// that's resolved - most likely _traversalData or a small parallel
-    /// dictionary needs to start carrying the id.
-    /// </summary>
-    /// <param name="ID">Object ID from ObjectDatabase</param>
     public void StartTraversalPlacement(int ID)
     {
         int objectIndex = _objectDatabase.objectsData.FindIndex(data => data.ID == ID);
@@ -397,9 +228,6 @@ public class PlacementSystem : MonoBehaviour
         BindInputEvents();
     }
 
-    /// <summary>
-    /// Activates grid object removal mode.
-    /// </summary>
     public void StartRemoving()
     {
         StopPlacement();
@@ -418,14 +246,8 @@ public class PlacementSystem : MonoBehaviour
         BindInputEvents();
     }
 
-    /// <summary>
-    /// Activates edge object placement mode.
-    /// SAFETY FIX: Validates ID before state creation to prevent broken state.
-    /// </summary>
-    /// <param name="ID">Edge object ID from EdgeDatabase</param>
     public void StartEdgePlacement(int ID)
     {
-        // Validate ID before state transition
         int edgeIndex = _edgeDatabase.edgeData.FindIndex(data => data.ID == ID);
         if (edgeIndex < 0)
         {
@@ -450,9 +272,6 @@ public class PlacementSystem : MonoBehaviour
         BindInputEvents();
     }
 
-    /// <summary>
-    /// Activates edge object removal mode.
-    /// </summary>
     public void StartEdgeRemoving()
     {
         StopPlacement();
@@ -471,13 +290,6 @@ public class PlacementSystem : MonoBehaviour
         BindInputEvents();
     }
 
-    /// <summary>
-    /// Activates wall opening placement mode (doors, windows). Same
-    /// ID-validation-before-transition safety pattern as StartEdgePlacement.
-    /// Placement itself is rejected per-tile by WallOpeningState if no
-    /// chunked wall exists at the target position - see that class.
-    /// </summary>
-    /// <param name="ID">Wall opening ID from WallOpeningDatabase</param>
     public void StartWallOpeningPlacement(int ID)
     {
         int openingIndex = _wallOpeningDatabase.openingData.FindIndex(data => data.ID == ID);
@@ -513,10 +325,6 @@ public class PlacementSystem : MonoBehaviour
         BindInputEvents();
     }
 
-    /// <summary>
-    /// Activates wall opening removal mode. Removing an opening restores its
-    /// host wall tile(s)' original mesh - see WallOpeningLinkService.RemoveOpening.
-    /// </summary>
     public void StartWallOpeningRemoving()
     {
         StopPlacement();
@@ -531,9 +339,6 @@ public class PlacementSystem : MonoBehaviour
         BindInputEvents();
     }
 
-    /// <summary>
-    /// Exits building mode and cleans up state.
-    /// </summary>
     private void StopPlacement()
     {
         if (_buildingState == null)
@@ -553,9 +358,6 @@ public class PlacementSystem : MonoBehaviour
 
     #region Input Event Handling
 
-    /// <summary>
-    /// Binds InputManager events to building state methods.
-    /// </summary>
     private void BindInputEvents()
     {
         _inputManager.OnMouseDown += BeginAction;
@@ -566,9 +368,6 @@ public class PlacementSystem : MonoBehaviour
         _inputManager.OnPageDown += DecreaseBuildHeight;
     }
 
-    /// <summary>
-    /// Unbinds InputManager events to prevent memory leaks.
-    /// </summary>
     private void UnbindInputEvents()
     {
         _inputManager.OnMouseDown -= BeginAction;
@@ -579,11 +378,6 @@ public class PlacementSystem : MonoBehaviour
         _inputManager.OnPageDown -= DecreaseBuildHeight;
     }
 
-    /// <summary>
-    /// Handles the start of a click/drag (mouse down).
-    /// Delegates to active building state's OnActionStart, which records a drag
-    /// origin for states that support it and is a no-op for the rest.
-    /// </summary>
     private void BeginAction()
     {
         if (_inputManager.IsPointerOverUI() || _buildingState == null)
@@ -594,10 +388,6 @@ public class PlacementSystem : MonoBehaviour
         _isHolding = true;
     }
 
-    /// <summary>
-    /// Handles the commit of a click/drag (mouse release).
-    /// Delegates to active building state's OnAction.
-    /// </summary>
     private void CommitAction()
     {
         _isHolding = false;
@@ -609,10 +399,6 @@ public class PlacementSystem : MonoBehaviour
         _buildingState.OnAction(gridPosition);
     }
 
-    /// <summary>
-    /// Handles rotation action (R key press).
-    /// Delegates to active building state.
-    /// </summary>
     private void Rotate()
     {
         if (!_lastDetectedPosition.HasValue)
@@ -625,13 +411,6 @@ public class PlacementSystem : MonoBehaviour
 
     #region Update Loop
 
-    /// <summary>
-    /// Updates building state with current mouse position every frame.
-    /// While the mouse button is held, routes to OnHold (drag preview);
-    /// otherwise routes to UpdateState (hover preview) only when the grid
-    /// position has changed, to minimize overhead.
-    /// MULTI-LEVEL: Applies current build height to Y-coordinate.
-    /// </summary>
     private void Update()
     {
         if (_buildingState == null)
@@ -646,7 +425,6 @@ public class PlacementSystem : MonoBehaviour
             return;
         }
 
-        // Only update state when grid position changes
         if (!_lastDetectedPosition.HasValue || _lastDetectedPosition.Value != gridPosition)
         {
             _buildingState.UpdateState(gridPosition);
@@ -654,16 +432,6 @@ public class PlacementSystem : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Converts the current mouse position to a grid cell, overriding the
-    /// Y-coordinate with the current build height.
-    /// 
-    /// MULTI-LEVEL CURSOR FIX: raycasts against a math plane at the build
-    /// height's WORLD-SPACE Y (see InputManager.GetSelectedMapPositionAtHeight),
-    /// instead of always raycasting the ground plane and overwriting Y after
-    /// the fact - which previously caused the cursor/preview to drift off the
-    /// visual cursor position on any floor above ground level.
-    /// </summary>
     private Vector3Int GetCurrentGridPosition()
     {
         float worldHeight = GetCurrentBuildWorldHeight();
@@ -671,6 +439,191 @@ public class PlacementSystem : MonoBehaviour
         Vector3Int gridPosition = _grid.WorldToCell(mousePosition);
         gridPosition.y = _currentBuildHeight;
         return gridPosition;
+    }
+
+    #endregion
+
+    #region Save System
+
+    /// <summary>
+    /// Serializes active grid layers, edges, traversal paths, and wall openings into a save snapshot.
+    /// </summary>
+    public BuildingSaveData CaptureSaveData()
+    {
+        var data = new BuildingSaveData();
+
+        CaptureGridLayer(_floorData, data.gridObjects);
+        CaptureGridLayer(_furnitureData, data.gridObjects);
+        CaptureGridLayer(_ceilingData, data.gridObjects);
+        CaptureGridLayer(_ceilingFurnitureData, data.gridObjects);
+
+        CaptureGridLayer(_traversalData, data.traversalObjects);
+
+        CaptureEdgeLayer(_floorData, data.edges);
+        CaptureEdgeLayer(_furnitureData, data.edges);
+        CaptureEdgeLayer(_ceilingData, data.edges);
+
+        foreach (var (openingID, basePosition, rotation) in _wallOpeningLink.GetAllOpenings())
+        {
+            data.openings.Add(new WallOpeningSaveEntry
+            {
+                id = openingID,
+                basePosition = basePosition,
+                rotation = rotation
+            });
+        }
+
+        return data;
+    }
+
+    private static void CaptureGridLayer(GridData layer, List<PlacedObjectSaveEntry> into)
+    {
+        foreach (PlacedObject obj in layer.GetAllPlacedObjects())
+        {
+            into.Add(new PlacedObjectSaveEntry
+            {
+                id = obj.ID,
+                basePosition = obj.basePosition,
+                rotation = obj.rotation
+            });
+        }
+    }
+
+    private static void CaptureEdgeLayer(GridData layer, List<PlacedEdgeSaveEntry> into)
+    {
+        foreach (PlacedEdge edge in layer.GetAllPlacedEdges())
+        {
+            into.Add(new PlacedEdgeSaveEntry
+            {
+                id = edge.ID,
+                baseEdgeEnd1 = edge.baseEdge.end1,
+                baseEdgeEnd2 = edge.baseEdge.end2,
+                rotation = edge.rotation
+            });
+        }
+    }
+
+    /// <summary>
+    /// Clears current scene state and replays a saved snapshot by re-executing state placement calls.
+    /// </summary>
+    public void LoadSaveData(BuildingSaveData data)
+    {
+        if (data == null)
+        {
+            Debug.LogError("PlacementSystem.LoadSaveData: data is null - aborting load.");
+            return;
+        }
+
+        StopPlacement();
+        ResetAllBuildingState();
+
+        ReplayGridObjects(data.gridObjects, _objectDatabase, isTraversal: false);
+        ReplayEdges(data.edges);
+        ReplayGridObjects(data.traversalObjects, _objectDatabase, isTraversal: true);
+        ReplayOpenings(data.openings);
+
+        if (_navigationService != null)
+        {
+            _navigationService.NavGrid.ProcessDirtyChunks();
+        }
+    }
+
+    private void ResetAllBuildingState()
+    {
+        _floorData.Clear();
+        _furnitureData.Clear();
+        _ceilingData.Clear();
+        _ceilingFurnitureData.Clear();
+        _traversalData.Clear();
+
+        _objectPlacer.ClearAll();
+        _wallOpeningLink.Clear();
+
+        if (_navigationService != null)
+        {
+            _navigationService.ObstacleChannel.Clear();
+            _navigationService.NavGrid.Clear();
+        }
+    }
+
+    private void ReplayGridObjects(List<PlacedObjectSaveEntry> entries, ObjectDatabase database, bool isTraversal)
+    {
+        if (entries == null)
+            return;
+
+        foreach (var group in entries.GroupBy(e => e.id))
+        {
+            if (isTraversal)
+            {
+                if (_navigationService == null)
+                {
+                    Debug.LogWarning($"PlacementSystem.LoadSaveData: skipping {group.Count()} traversal entr" +
+                                     $"{(group.Count() == 1 ? "y" : "ies")} for ID {group.Key} - _navigationService is not assigned.");
+                    continue;
+                }
+
+                TraversalState state = new TraversalState(
+                    group.Key, _grid, _previewSystem, database, _objectPlacer,
+                    _traversalData, _navigationService.ObstacleChannel, _buildHeightIncrement
+                );
+
+                foreach (var entry in group)
+                    state.PlaceDirect(entry.basePosition);
+
+                state.EndState();
+            }
+            else
+            {
+                GridState state = new GridState(
+                    group.Key, _grid, _previewSystem, database, _objectPlacer,
+                    _floorData, _furnitureData, _ceilingData, _ceilingFurnitureData
+                );
+
+                foreach (var entry in group)
+                    state.PlaceDirect(entry.basePosition, entry.rotation);
+
+                state.EndState();
+            }
+        }
+    }
+
+    private void ReplayEdges(List<PlacedEdgeSaveEntry> entries)
+    {
+        if (entries == null)
+            return;
+
+        foreach (var group in entries.GroupBy(e => e.id))
+        {
+            EdgeState state = new EdgeState(
+                group.Key, _grid, _previewSystem, _edgeDatabase, _objectPlacer,
+                _floorData, _furnitureData, _ceilingData
+            );
+
+            foreach (var entry in group)
+                state.PlaceDirect(entry.baseEdgeEnd1, entry.rotation);
+
+            state.EndState();
+        }
+    }
+
+    private void ReplayOpenings(List<WallOpeningSaveEntry> entries)
+    {
+        if (entries == null)
+            return;
+
+        foreach (var group in entries.GroupBy(e => e.id))
+        {
+            WallOpeningState state = new WallOpeningState(
+                group.Key, _grid, _previewSystem, _wallOpeningDatabase, _edgeDatabase,
+                _objectPlacer, _wallChunkManager, _wallOpeningLink,
+                _floorData, _furnitureData, _ceilingData
+            );
+
+            foreach (var entry in group)
+                state.PlaceDirect(entry.basePosition, entry.rotation);
+
+            state.EndState();
+        }
     }
 
     #endregion

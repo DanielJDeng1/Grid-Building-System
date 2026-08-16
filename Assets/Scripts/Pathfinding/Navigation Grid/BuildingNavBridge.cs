@@ -1,35 +1,7 @@
 using UnityEngine;
 
 /// <summary>
-/// The single point of contact between the building system and the
-/// navigation system. Subscribes to all three GridData instances'
-/// occupancy events (via PlacementSystem's read-only accessors) and
-/// translates them into INavObstacleChannel calls.
-/// 
-/// This is the only class in the project that references both PlacementSystem
-/// (or GridData) and INavObstacleChannel. Neither of those two systems knows
-/// this class exists - remove it, and both continue to compile and function
-/// independently; that's the whole point of the contract in §3 of the design
-/// doc.
-/// 
-/// LAYER SEMANTICS:
-/// Floor has the OPPOSITE polarity from an obstacle - a cell needs floor
-/// PRESENT to be walkable, so floor occupancy maps to RegisterFloorPresence,
-/// not RegisterCellObstacle. Furniture and Ceiling both block uniformly
-/// (current simplifying assumption - see design doc for the ceiling caveat).
-/// Edges (walls/fences/railings) block regardless of which of the three
-/// GridData instances they're registered on.
-/// 
-/// TIMING:
-/// Relies on PlacementSystem constructing its three GridData instances in
-/// Awake() (see PlacementSystem.Awake() comments) and this bridge reading
-/// them in its own Start() - Unity guarantees every Awake() in the scene
-/// completes before any Start() runs, so this is safe regardless of script
-/// execution order between the two components.
-/// 
-/// INSPECTOR SETUP:
-/// - Assign the scene's PlacementSystem
-/// - Assign the scene's NavigationService
+/// Bridges PlacementSystem grid occupancy events to INavObstacleChannel updates.
 /// </summary>
 public class BuildingNavBridge : MonoBehaviour
 {
@@ -49,6 +21,7 @@ public class BuildingNavBridge : MonoBehaviour
 
         _channel = _navigationService.ObstacleChannel;
 
+        // Floor presence dictates walkability; furniture and ceiling act as cell blockings.
         SubscribeLayer(_placementSystem.FloorData, isFloorLayer: true);
         SubscribeLayer(_placementSystem.FurnitureData, isFloorLayer: false);
         SubscribeLayer(_placementSystem.CeilingData, isFloorLayer: false);
@@ -113,16 +86,14 @@ public class BuildingNavBridge : MonoBehaviour
     {
         NavDebug.Log($"[BuildingNavBridge] Edge occupancy changed: {edge.end1} <-> {edge.end2}, isNowOccupied={isNowOccupied}");
 
-        // Calculate wall orientation (X-axis vs Z-axis)
         Vector3Int diff = edge.end2 - edge.end1;
         
-        // Determine perpendicular offset direction
-        // If the wall spans along X, perpendicular axis is Z (and vice versa)
+        // Derive perpendicular vector across the edge boundary
         Vector3Int perp = (diff.x != 0) 
             ? new Vector3Int(0, 0, 1) 
             : new Vector3Int(1, 0, 0);
 
-        // Apply perpendicular blocking to both tiles touched by the edge in both forward & backward directions
+        // Block adjacent cell transitions across both endpoints
         ApplyOrClearEdgeObstacle(edge.end1, edge.end1 + perp, isNowOccupied);
         ApplyOrClearEdgeObstacle(edge.end1, edge.end1 - perp, isNowOccupied);
         ApplyOrClearEdgeObstacle(edge.end2, edge.end2 + perp, isNowOccupied);

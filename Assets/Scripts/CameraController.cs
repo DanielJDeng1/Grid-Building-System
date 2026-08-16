@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Cinemachine;
-using System.Collections.Generic;
 
 public class BuilderCameraController : MonoBehaviour
 {
@@ -26,22 +25,12 @@ public class BuilderCameraController : MonoBehaviour
     [SerializeField] private float minCameraDepth = 5f;   
     [SerializeField] private float maxCameraDepth = 40f;  
 
-    [Header("Multi-Level Build Height Follow")]
+    [Header("Multi Level Build Height Follow")]
     [SerializeField] private PlacementSystem _placementSystem;
     [SerializeField] private float heightFollowSmoothTime = 0.35f;
 
-    [Header("Wall Occlusion Hiding")]
-    [SerializeField] private LayerMask occlusionLayerMask;
-    [SerializeField] private Transform focusPoint;
-    [Tooltip("The horizontal half-width and vertical half-height of the upright sweeping box.")]
-    [SerializeField] private float occlusionVolumeRadius = 0.5f;
-    
-    [Tooltip("The camera pitch angle (in degrees) below which wall hiding is allowed. If pitch is higher than this, walls stay visible.")]
-    [SerializeField] private float fadeAngleThreshold = 50f;
-
     private InputSystem.Controls inputActions;
     private CinemachineCamera vCam;
-    private Camera mainCam;
     private Vector2 moveInput;
     private float yawInput; 
     private bool isSprinting;
@@ -53,21 +42,10 @@ public class BuilderCameraController : MonoBehaviour
     private float _targetHeight;
     private float _heightVelocity;
 
-    private readonly HashSet<Renderer> _currentlyHiddenRenderers = new HashSet<Renderer>();
-    private readonly HashSet<Renderer> _hitThisFrame = new HashSet<Renderer>();
-    private readonly List<Renderer> _restoreList = new List<Renderer>();
-
-    // Gizmo Caching Variables
-    private Vector3 _gizmoStart;
-    private Vector3 _gizmoEnd;
-    private Quaternion _gizmoRotation;
-    private bool _canDrawGizmo;
-
     private void Awake()
     {
         inputActions = new InputSystem.Controls();
         vCam = GetComponentInChildren<CinemachineCamera>();
-        mainCam = Camera.main;
 
         inputActions.Camera.Pitch.performed += ctx => OnScrollInput(ctx.ReadValue<float>());
     }
@@ -84,8 +62,6 @@ public class BuilderCameraController : MonoBehaviour
         inputActions.Camera.Disable();
         if (_placementSystem != null)
             _placementSystem.OnBuildHeightChanged -= HandleBuildHeightChanged;
-
-        RestoreAllHiddenRenderers();
     }
 
     private void Start()
@@ -125,11 +101,6 @@ public class BuilderCameraController : MonoBehaviour
         HandleHeightFollow();
     }
 
-    private void LateUpdate()
-    {
-        HandleOcclusionToggle();
-    }
-
     private void HandleTransitions()
     {
         float yawDecay = 1f - Mathf.Exp(-yawSnappiness * Time.deltaTime);
@@ -167,142 +138,5 @@ public class BuilderCameraController : MonoBehaviour
         Vector3 position = transform.position;
         position.y = Mathf.SmoothDamp(position.y, _targetHeight, ref _heightVelocity, heightFollowSmoothTime);
         transform.position = position;
-    }
-
-    private void HandleOcclusionToggle()
-    {
-        if (mainCam == null) mainCam = Camera.main;
-        if (mainCam == null) return;
-
-        float currentPitchAngle = mainCam.transform.eulerAngles.x;
-        if (currentPitchAngle > 180f) currentPitchAngle -= 360f;
-
-        // Pitch exceeded threshold; restore all renderers and stop occlusion checks
-        if (currentPitchAngle > fadeAngleThreshold)
-        {
-            _canDrawGizmo = false;
-            _hitThisFrame.Clear();
-            ProcessOcclusionState();
-            return;
-        }
-
-        Vector3 rayStart = mainCam.transform.position;
-        Vector3 rayDirection = mainCam.transform.forward;
-        Vector3 targetPos = focusPoint != null ? focusPoint.position : transform.position;
-
-        Quaternion uprightRotation = Quaternion.Euler(0f, currentYaw, 0f);
-        float targetDistance = Vector3.Distance(rayStart, targetPos);
-
-        _hitThisFrame.Clear();
-
-        if (targetDistance > 0.2f)
-        {
-            Vector3 boxHalfExtents = new Vector3(occlusionVolumeRadius, occlusionVolumeRadius, 0.01f);
-            Vector3 correctedStart = rayStart + (rayDirection * 0.1f);
-            float castLength = targetDistance - 0.2f;
-
-            _gizmoStart = correctedStart;
-            _gizmoEnd = correctedStart + (rayDirection * castLength);
-            _gizmoRotation = uprightRotation;
-            _canDrawGizmo = true;
-
-            RaycastHit[] hits = Physics.BoxCastAll(
-                correctedStart, 
-                boxHalfExtents, 
-                rayDirection, 
-                uprightRotation, 
-                castLength, 
-                occlusionLayerMask
-            );
-
-            Plane cutoffPlane = new Plane(-rayDirection, targetPos);
-
-            for (int i = 0; i < hits.Length; i++)
-            {
-                Collider col = hits[i].collider;
-                if (col == null) continue;
-
-                if (!cutoffPlane.GetSide(col.bounds.min) && !cutoffPlane.GetSide(col.bounds.center))
-                {
-                    continue;
-                }
-
-                // Target ONLY renderers directly on the hit chunk collider
-                Renderer[] structuralRenderers = col.GetComponentsInChildren<Renderer>();
-
-                foreach (Renderer hitRenderer in structuralRenderers)
-                {
-                    if (hitRenderer == null) continue;
-
-                    _hitThisFrame.Add(hitRenderer);
-
-                    if (!_currentlyHiddenRenderers.Contains(hitRenderer))
-                    {
-                        hitRenderer.enabled = false;
-                        _currentlyHiddenRenderers.Add(hitRenderer);
-                    }
-                }
-            }
-        }
-        else
-        {
-            _canDrawGizmo = false;
-        }
-
-        ProcessOcclusionState();
-    }
-
-    private void ProcessOcclusionState()
-    {
-        _restoreList.Clear();
-
-        foreach (Renderer renderer in _currentlyHiddenRenderers)
-        {
-            if (renderer == null)
-            {
-                _restoreList.Add(renderer);
-                continue;
-            }
-
-            if (!_hitThisFrame.Contains(renderer))
-            {
-                renderer.enabled = true;
-                _restoreList.Add(renderer);
-            }
-        }
-
-        foreach (Renderer renderer in _restoreList)
-        {
-            _currentlyHiddenRenderers.Remove(renderer);
-        }
-    }
-
-    private void RestoreAllHiddenRenderers()
-    {
-        foreach (Renderer renderer in _currentlyHiddenRenderers)
-        {
-            if (renderer != null)
-            {
-                renderer.enabled = true;
-            }
-        }
-        _currentlyHiddenRenderers.Clear();
-    }
-
-    private void OnDrawGizmos()
-    {
-        if (!_canDrawGizmo || !Application.isPlaying || mainCam == null) return;
-
-        Gizmos.color = Color.cyan;
-        Gizmos.matrix = Matrix4x4.TRS(_gizmoStart, _gizmoRotation, Vector3.one);
-        Gizmos.DrawWireCube(Vector3.zero, new Vector3(occlusionVolumeRadius * 2f, occlusionVolumeRadius * 2f, 0.02f));
-
-        Gizmos.color = Color.red;
-        Gizmos.matrix = Matrix4x4.TRS(_gizmoEnd, _gizmoRotation, Vector3.one);
-        Gizmos.DrawWireCube(Vector3.zero, new Vector3(occlusionVolumeRadius * 2f, occlusionVolumeRadius * 2f, 0.02f));
-        
-        Gizmos.matrix = Matrix4x4.identity;
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawLine(_gizmoStart, _gizmoEnd);
     }
 }

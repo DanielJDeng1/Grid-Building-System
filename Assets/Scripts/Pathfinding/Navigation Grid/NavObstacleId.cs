@@ -1,15 +1,8 @@
 using System;
 
 /// <summary>
-/// Identifies a single stateful registration in the nav obstacle contract -
-/// currently used for NavLinks (stairs/elevators, Phase 2) and toggleable
-/// obstacles like doors (Phase 4). Plain cell/edge obstacles coming through
-/// GridData's occupancy events do NOT need one of these - see
-/// INavObstacleChannel for why refcounting by key is sufficient there.
-/// 
-/// Deliberately a bare int wrapper, not a GUID: allocated via
-/// INavObstacleChannel.AllocateId(), cheap to generate, cheap to compare,
-/// and stable for the lifetime of whatever placed object holds it.
+/// Unique handle for stateful navigation registrations like dynamic links and doors.
+/// Lightweight integer wrapper allocated via INavObstacleChannel to avoid GUID generation overhead.
 /// </summary>
 public readonly struct NavObstacleId : IEquatable<NavObstacleId>
 {

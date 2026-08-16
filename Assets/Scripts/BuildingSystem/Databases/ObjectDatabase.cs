@@ -7,11 +7,9 @@ using System.Collections.Generic;
 public class ObjectDatabase : ScriptableObject
 {
     public List<ObjectData> objectsData;
-
 }
 
 [Serializable]
-
 public class ObjectData
 {
     [field: SerializeField] public string name;
@@ -23,14 +21,16 @@ public class ObjectData
     [field: SerializeField] public int ID;
 
     [field: SerializeField] public ObjectBuildType buildType;
-
 }
 
+/// <summary>
+/// Defines build categories for placed objects. Traversal is included for future dispatch unification.
+/// </summary>
 public enum ObjectBuildType
 {
     Floor,
     Furniture,
     Ceiling,
-
-    CeilingFurniture
+    CeilingFurniture,
+    Traversal
 }

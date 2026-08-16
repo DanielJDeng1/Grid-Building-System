@@ -3,56 +3,20 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Manages mesh-chunked Wall (edge) objects using CONTIGUOUS RUN chunking - unlike floors,
-/// walls are grouped purely by "am I part of an unbroken straight line," not by spatial
-/// bucket. A run only ever contains wall tiles of the SAME orientation that are positionally
-/// adjacent; two runs of different orientation never merge even if geometrically touching
-/// (e.g. the 4 sides of a square room are always 4 separate runs/chunks, meeting at corners).
-///
-/// This is required for future dynamic wall hiding, where an entire contiguous wall segment
-/// (one side of a room) needs to be toggled as a single visual unit - spatial bucketing
-/// (used for floors) would slice/merge runs based on arbitrary chunk boundaries instead of
-/// where the walls actually start and end.
-///
-/// CONTIGUITY RULE:
-/// Merging is based purely on position + orientation adjacency - a wall tile always merges
-/// into an adjacent run regardless of prefab/wall type. A line of mixed wall prefabs is still
-/// one contiguous run/chunk.
-///
-/// RUN KEY:
-/// A run lives along a fixed axis: Deg0 runs share (z, buildHeight) and extend along x;
-/// Deg90 runs share (x, buildHeight) and extend along z. RunKey identifies that axis;
-/// the "coordinate" is the tile's position along it.
-///
-/// ADD ALGORITHM:
-/// - Neither neighbor (coordinate-1 / coordinate+1) occupied -> start a new 1-tile run.
-/// - Exactly one neighbor occupied -> extend that run (if under the length cap).
-/// - Both neighbors occupied -> by construction they must belong to two DIFFERENT runs
-///   (if they were the same run, this coordinate wouldn't have been a gap a moment ago) ->
-///   merge them (if the combined length fits under the cap - see MAX RUN LENGTH below).
-///
-/// REMOVE ALGORITHM:
-/// - Removing an end tile just shrinks the run.
-/// - Removing an interior tile (both remaining neighbors still present) SPLITS the run into
-///   two: everything left of the gap keeps the existing chunk, everything right of the gap
-///   becomes a new chunk.
-///
-/// MAX RUN LENGTH:
-/// A single very long wall would be one giant mesh that fully rebuilds on any single edit
-/// anywhere along it. _maxRunLength forces a chunk boundary even mid-run: extending or
-/// merging that would exceed the cap is skipped in favor of leaving a boundary between two
-/// (still gap-free, still visually seamless) neighboring chunks instead.
+/// Groups contiguous, same-orientation wall tiles into 1D runs for mesh chunking
+/// Enables dynamic wall hiding by treating linear room boundaries as unified visual segments
+/// Evaluates adjacency strictly by position and orientation rather than spatial bucketing or prefab type
 /// </summary>
 public class WallChunkManager : MonoBehaviour, IChunkOwner
 {
     [Header("Chunking")]
-    [Tooltip("Maximum tiles in a single contiguous wall run before a chunk boundary is forced, even mid-run.")]
+    [Tooltip("Forces chunk boundaries on long walls to prevent excessive mesh rebuilds during local edits")]
     [SerializeField] private int _maxRunLength = 32;
 
-    [Tooltip("Optional parent transform for generated chunk mesh GameObjects. Defaults to this GameObject's transform.")]
+    [Tooltip("Transform parent for generated chunk objects")]
     [SerializeField] private Transform _chunkParent;
 
-    [Tooltip("Generates one BoxCollider per contiguous wall run - exact by construction, since a run is always a straight line.")]
+    [Tooltip("Generates a single BoxCollider per contiguous linear run")]
     [SerializeField] private bool _generateColliders = true;
 
     private readonly struct RunKey : IEquatable<RunKey>
@@ -81,9 +45,7 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
         public RunKey key;
         public Chunk meshChunk;
 
-        // coordinate -> handle. Kept alongside the Chunk (which stores handle -> mesh data)
-        // so we can answer "what's adjacent to this coordinate" and "split this run at this
-        // coordinate" without needing the Chunk itself to know about spatial ordering.
+        // Decouples spatial adjacency lookups from mesh chunk data for fast split/merge evaluations
         public readonly SortedDictionary<int, int> coordinateToHandle = new();
     }
 
@@ -93,18 +55,13 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
     private readonly Dictionary<int, (RunKey key, int coordinate)> _handleToPosition = new();
     private readonly HashSet<int> _dirtyRuns = new();
 
-    // Alongside the existing _runs / _positionToRunId / _handleToPosition fields:
     private readonly Dictionary<int, int> _openingHandleToRunId = new();
 
     #region Public API
 
     /// <summary>
-    /// Registers a chunked Wall placement.
+    /// Registers a wall placement and resolves run merging based on adjacent tiles
     /// </summary>
-    /// <param name="prefab">Prefab asset reference (NOT instantiated).</param>
-    /// <param name="position">World placement position (grid integer coordinate of the edge).</param>
-    /// <param name="rotation">Edge rotation - determines which axis this wall's run extends along.</param>
-    /// <returns>A negative handle (from ChunkHandleRegistry) for later removal.</returns>
     public int AddEntry(GameObject prefab, Vector3 position, EdgeRotation rotation)
     {
         Vector3Int tile = Vector3Int.RoundToInt(position);
@@ -135,8 +92,7 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
     }
 
     /// <summary>
-    /// Removes a previously-added entry, splitting or shrinking its run as needed.
-    /// Called by ChunkHandleRegistry - do not call directly from ObjectPlacer.
+    /// Invoked via ChunkHandleRegistry to shrink or split a run upon tile removal
     /// </summary>
     public void RemoveEntry(int handle)
     {
@@ -180,8 +136,7 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
         bool leftStillThere = run.coordinateToHandle.ContainsKey(location.coordinate - 1);
         bool rightStillThere = run.coordinateToHandle.ContainsKey(location.coordinate + 1);
 
-        // Both sides still present after removing the middle tile means an interior gap
-        // was just created - the run must split into two contiguous pieces.
+        // Interior removal requires splitting the run
         if (leftStillThere && rightStillThere)
         {
             SplitRun(runId, location.coordinate);
@@ -203,17 +158,12 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
         if (!leftOccupied && rightOccupied)
             return HasRoom(rightRunId) ? rightRunId : CreateRun(key);
 
-        // Both neighbors occupied - by the contiguity invariant they must be two DIFFERENT
-        // runs (if they were the same run, this coordinate would already have been part of
-        // it, contradicting it being empty a moment ago).
+        // Contiguity invariant guarantees occupied neighbors belong to separate runs
         return BridgeTwoRuns(leftRunId, rightRunId, key);
     }
 
     /// <summary>
-    /// Swaps the prefab used by an existing wall tile's ChunkEntry in place (same worldMatrix),
-    /// without touching run adjacency/contiguity bookkeeping. Used by wall openings to install a
-    /// procedurally-cut segment (WallSegmentCutCache) and to restore the original prefab when an
-    /// opening is removed but the wall stays.
+    /// In-place prefab swap for wall openings and procedural cuts without rebuilding run topology
     /// </summary>
     public bool TrySetTilePrefab(EdgeRotation rotation, Vector3Int tile, GameObject prefab)
     {
@@ -239,12 +189,7 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
     }
 
     /// <summary>
-    /// Attaches a chunked wall-opening's mesh entry directly into the SAME Chunk as the wall run
-    /// covering anchorTile, under its own handle from ChunkHandleRegistry. Deliberately NOT added
-    /// to coordinateToHandle/_positionToRunId - those exist purely for wall-TILE adjacency
-    /// (extend/merge/split), and an opening isn't a wall tile. This keeps run split/merge logic
-    /// (which only iterates coordinateToHandle) completely unaware openings exist. Removal is
-    /// routed through _openingHandleToRunId instead - see RemoveEntry below.
+    /// Injects an opening mesh into a wall run's chunk without polluting tile adjacency state
     /// </summary>
     public int AttachOpeningEntry(GameObject prefab, Vector3 worldPosition, EdgeRotation rotation, Vector3Int anchorTile)
     {
@@ -282,15 +227,13 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
         if (combinedSize <= _maxRunLength)
             return MergeRuns(leftRunId, rightRunId);
 
-        // Can't fully merge without breaking the cap - extend whichever side has room and
-        // leave the other run as a separate (still gap-free, still visually seamless) neighbor.
+        // Enforce length cap by extending one side and maintaining a chunk boundary
         if (HasRoom(leftRunId))
             return leftRunId;
         if (HasRoom(rightRunId))
             return rightRunId;
 
-        // Both sides are already at the cap - this tile becomes its own single-tile run,
-        // bridging them visually without merging their data.
+        // Isolate bridging tile into a new run to respect capacity limits
         return CreateRun(key);
     }
 
@@ -325,8 +268,7 @@ public class WallChunkManager : MonoBehaviour, IChunkOwner
     #region Remove-Time Resolution (split)
 
     /// <summary>
-    /// Splits a run at a just-removed interior coordinate: everything left of the gap stays
-    /// in the existing run/chunk, everything right of the gap moves into a brand new one.
+    /// Migrates tiles right of the removal gap into a new chunk
     /// </summary>
     private void SplitRun(int runId, int gapCoordinate)
     {

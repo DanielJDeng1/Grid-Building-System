@@ -2,26 +2,17 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Baseline managed A* (Phase 3 replaces the inner loop with a Burst job
-/// against the same NavGrid query API - the algorithm shape doesn't change,
-/// just where it runs).
-/// 
-/// TWO-TIER SEARCH (design doc §8): Tier 1 is fast, weighted, and budgeted -
-/// handles the large majority of requests. If it fails, NavGrid.IsReachable
-/// (the region graph, §4) is consulted: if it says no path exists at all,
-/// return Unreachable with a "walk as close as possible" partial path. If it
-/// says a path DOES exist, Tier 2 retries with a relaxed heuristic and a much
-/// larger budget - guaranteed to terminate with a real path, since
-/// reachability already proved the search space is finite and connected.
-/// This is what prevents ever reporting "can't reach" when a path actually
-/// exists, without paying Tier 2's cost on every request.
+/// Managed two-tier A* pathfinder.
+/// Tier 1 executes a fast, low-budget search for standard queries.
+/// If Tier 1 fails, region-graph reachability is checked: unreachable targets return a 
+/// partial path, while reachable targets invoke a higher-budget Tier 2 search to guarantee arrival.
 /// </summary>
 public class AStarPathfinder : IPathfinder
 {
     private readonly NavGrid _navGrid;
     private readonly PathfindingSettings _settings;
 
-    // Reused across calls to avoid per-request allocation churn.
+    // Per-instance buffers to eliminate runtime allocations during path searches
     private readonly Dictionary<Vector3Int, float> _gScore = new();
     private readonly Dictionary<Vector3Int, Vector3Int> _cameFrom = new();
     private readonly HashSet<Vector3Int> _closed = new();
@@ -63,10 +54,7 @@ public class AStarPathfinder : IPathfinder
         }
         else if (confirmedReachable)
         {
-            // Should not happen given the region graph guarantee - if it
-            // ever does (e.g. Tier 2's budget still isn't enough on some
-            // pathological map), report the partial progress as a success
-            // rather than silently lying about reachability.
+            // Tier 2 budget exhaustion fallback; return best effort partial path
             Debug.LogWarning("AStarPathfinder: Tier 2 exhausted its budget on a confirmed-reachable request. " +
                               "Consider raising Tier2ExpansionBudget in PathfindingSettings.");
             result.Status = PathStatus.Success;
@@ -101,7 +89,7 @@ public class AStarPathfinder : IPathfinder
             Vector3Int current = _open.Pop();
 
             if (_closed.Contains(current))
-                continue; // stale lazy-deleted entry
+                continue; // Stale open-set entry
 
             if (current == goal)
             {
@@ -145,24 +133,7 @@ public class AStarPathfinder : IPathfinder
     }
 
     /// <summary>
-    /// Octile distance - the correct heuristic for 8-directional movement
-    /// with cardinal cost 1 and diagonal cost sqrt(2). Manhattan distance
-    /// would underestimate less (over-explore) once diagonal moves exist.
-    /// </summary>
-    /// <summary>
-    /// Octile distance in X/Z, plus a linear term for floor-height
-    /// difference. The height term is NOT a strict admissible lower bound
-    /// on actual NavLink traversal cost (a stair's real cost is often much
-    /// less than 1 per floor) - it's deliberately here anyway, consistent
-    /// with the project's existing "performance over pathfinding
-    /// perfection" stance (§8's weighted heuristic is already inadmissible
-    /// by design). Without SOME height term, two cells that share X/Z but
-    /// sit on different floors get a heuristic of exactly zero - the search
-    /// reads that as "already at the goal" and stops being pulled toward a
-    /// stairwell at all, which is what caused multi-floor requests to
-    /// exhaust Tier 1's budget wandering the wrong floor instead of
-    /// approaching a NavLink. Tier 2's reachability-gated fallback still
-    /// guarantees completion even where this estimate is inaccurate.
+    /// Octile planar distance combined with a linear floor height penalty to drive vertical search progression.
     /// </summary>
     private static float Heuristic(Vector3Int a, Vector3Int b)
     {
@@ -176,13 +147,7 @@ public class AStarPathfinder : IPathfinder
     }
 
     /// <summary>
-    /// Deterministic per-agent jitter (design doc §8): seeded from agentSeed
-    /// (stable per agent, passed in by the caller - see PathfindingAgent) so
-    /// a given agent's routing bias stays consistent across replans, while
-    /// different agents diverge on near-tied alternatives - the fix for
-    /// crowds visibly taking the identical path. Scales multiplicatively
-    /// with the base edge cost rather than adding a flat amount, so diagonal
-    /// and cardinal edges get proportionally comparable jitter.
+    /// Applies deterministic edge cost variance per agent to reduce line-of-sight visual clustering.
     /// </summary>
     private float JitterMultiplier(Vector3Int from, Vector3Int to, int agentSeed)
     {
@@ -195,7 +160,7 @@ public class AStarPathfinder : IPathfinder
             hash = hash * 31 + from.GetHashCode();
             hash = hash * 31 + to.GetHashCode();
             uint u = (uint)hash;
-            float normalized = (u % 10000) / 10000f; // deterministic [0,1)
+            float normalized = (u % 10000) / 10000f; // Normalized [0, 1) range
             return 1f + (normalized * 2f - 1f) * _settings.JitterRange;
         }
     }

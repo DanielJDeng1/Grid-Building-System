@@ -2,19 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Two independent post-processing steps, run once per path (not per
-/// frame): line-of-sight simplification removes the "staircase" artifact of
-/// grid-based movement, and lane offset spreads agents across a corridor's
-/// width instead of overlapping on its centerline (design doc §9).
-/// 
-/// Deliberately two separate public methods rather than one combined
-/// Process() call - SimplifyLineOfSight operates in cell space and needs
-/// NavGrid; ApplyLaneOffset is pure world-space geometry and needs neither
-/// NavGrid nor a Grid reference, so it stays trivially testable and doesn't
-/// pull this class toward depending on Unity's Grid component. The caller
-/// (PathfindingAgent) is already the one converting cells to world via its
-/// own Grid reference, so it's the natural place to sequence: simplify (cell
-/// space) -> convert to world -> lane offset (world space).
+/// Path post-processor handling cell-space line-of-sight smoothing and world-space lane offsets.
+/// Methods are intentionally split between cell space (NavGrid dependent) and world space (pure geometry)
 /// </summary>
 public class PathPostProcessor
 {
@@ -28,11 +17,8 @@ public class PathPostProcessor
     }
 
     /// <summary>
-    /// Walks the raw path and skips intermediate waypoints wherever a direct
-    /// line between two non-adjacent points crosses no blocked cell/edge.
-    /// Capped at a handful of attempts per step, not exhaustive - this is a
-    /// "remove the zigzag" pass, not a minimal-waypoint-count optimization
-    /// (design doc §9).
+    /// Smooths grid staircasing by skipping intermediate waypoints when line of sight exists.
+    /// Search depth is capped per waypoint to bound processing time.
     /// </summary>
     public List<Vector3Int> SimplifyLineOfSight(List<Vector3Int> waypoints)
     {
@@ -52,7 +38,7 @@ public class PathPostProcessor
                 if (HasLineOfSight(waypoints[currentIndex], waypoints[testIndex]))
                     furthestVisible = testIndex;
                 else
-                    break; // stop at the first blocked test past the last confirmed one
+                    break; // Stop at first occlusion
             }
 
             result.Add(waypoints[furthestVisible]);
@@ -63,9 +49,7 @@ public class PathPostProcessor
     }
 
     /// <summary>
-    /// Grid raycast (Bresenham-style walk) between two same-floor cells,
-    /// checking every step against the same walkability/traversal rules A*
-    /// uses, so a "shortcut" can never actually cross something impassable.
+    /// Performs a Bresenham 2D grid raycast on same-elevation cells using standard A* traversal checks.
     /// </summary>
     private bool HasLineOfSight(Vector3Int a, Vector3Int b)
     {
@@ -106,11 +90,7 @@ public class PathPostProcessor
     }
 
     /// <summary>
-    /// Nudges each waypoint slightly perpendicular to the local direction of
-    /// travel, using a stable per-agent seed - the same seed A*'s jitter
-    /// uses, so an agent's lane bias and routing bias correlate rather than
-    /// looking like two unrelated random effects. Pure world-space geometry,
-    /// no grid/NavGrid dependency.
+    /// Offsets waypoints perpendicular to movement vectors using an agent seed to stagger multi-agent movement across corridors.
     /// </summary>
     public List<Vector3> ApplyLaneOffset(List<Vector3> worldWaypoints, int agentSeed, float maxOffset)
     {
@@ -143,8 +123,8 @@ public class PathPostProcessor
     {
         unchecked
         {
-            uint u = (uint)agentSeed * 2654435761u; // Knuth multiplicative hash spread
-            float normalized = (u % 10000) / 10000f; // deterministic [0,1)
+            uint u = (uint)agentSeed * 2654435761u; // Knuth hash
+            float normalized = (u % 10000) / 10000f;
             return (normalized * 2f - 1f) * maxOffset;
         }
     }

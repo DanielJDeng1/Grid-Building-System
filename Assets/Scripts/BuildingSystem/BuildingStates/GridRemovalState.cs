@@ -2,27 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Building state for removing grid-based objects.
-/// Checks for placed objects and removes them on click, or across a dragged
-/// rectangle for multi-removal.
-/// 
-/// MULTI-REMOVAL:
-/// Pressing the mouse button records the drag origin cell (OnActionStart),
-/// holding and moving the mouse shows a bounding-box preview in the "will be
-/// removed" (invalid/red) material (OnHold), and releasing (OnAction) removes
-/// whatever occupies each cell in the rectangle, using the existing per-cell
-/// priority order (Furniture then Floor then Ceiling), unrestricted by layer.
-/// 
-/// A single click (no mouse movement) is just a 1x1 rectangle, so single-cell
-/// removal behavior is unchanged.
-/// 
-/// REMOVAL PRIORITY (per cell):
-/// Checks layers in order: Furniture -> Floor -> Ceiling
-/// Removes the first object found in the priority order.
-/// 
-/// PREVIEW INTEGRATION:
-/// - Single-cell hover: GridRemovalPreview (red indicator cube)
-/// - Active drag: GridMultiPlacePreview (resizable bounding-box cube)
+/// Handles single-cell and area drag removal for grid-aligned objects across floor layers
 /// </summary>
 public class GridRemovalState : IBuildingState
 {
@@ -36,7 +16,7 @@ public class GridRemovalState : IBuildingState
 
     private List<Vector2Int> _positionsToBeFilled;
 
-    // MULTI-REMOVAL: drag origin cell, set on mouse-down, cleared on commit.
+    // Anchor cell for area drag selection
     private Vector3Int? _dragOrigin = null;
 
     public GridRemovalState(Grid grid, PreviewSystem previewSystem, ObjectPlacer objectPlacer, 
@@ -49,10 +29,10 @@ public class GridRemovalState : IBuildingState
         _furnitureData = furnitureData;
         _ceilingData = ceilingData;
         _ceilingFurnitureData = ceilingFurnitureData;
-        // Single-tile check for removal validation
+        
+        // Single-tile origin offset for occupancy queries
         _positionsToBeFilled = new() { Vector2Int.zero };
 
-        // Initialize removal preview
         _previewSystem.StartShowingGridRemovalPreview(Vector3.zero);
     }
 
@@ -62,8 +42,7 @@ public class GridRemovalState : IBuildingState
     }
 
     /// <summary>
-    /// Called on mouse-down. Records the drag origin and switches to the
-    /// rectangle bounds preview.
+    /// Captures drag origin cell and initializes bounding box preview
     /// </summary>
     public void OnActionStart(Vector3Int gridPosition)
     {
@@ -72,9 +51,7 @@ public class GridRemovalState : IBuildingState
     }
 
     /// <summary>
-    /// Called every frame while the mouse button is held. Updates the
-    /// rectangle bounds preview, always shown in the "will be removed"
-    /// (invalid/red) material.
+    /// Updates bounding box selection visuals during active drag
     /// </summary>
     public void OnHold(Vector3Int gridPosition)
     {
@@ -86,8 +63,7 @@ public class GridRemovalState : IBuildingState
     }
 
     /// <summary>
-    /// Commits the action. If a drag is active, removes everything found
-    /// across the rectangle. Otherwise falls back to single-cell removal.
+    /// Commits single-cell removal or area drag selection
     /// </summary>
     public void OnAction(Vector3Int gridPosition)
     {
@@ -104,25 +80,24 @@ public class GridRemovalState : IBuildingState
 
     public void UpdateState(Vector3Int gridPosition)
     {
-        // Check if there's a valid object to remove at this position
+        // Check object occupancy at hover target
         bool isValid = CheckIfObjectExists(gridPosition);
         
-        // Update preview with position and validity feedback
+        // Sync hover preview position and state
         Vector3 worldPosition = _grid.CellToWorld(gridPosition);
         _previewSystem.UpdatePosition(worldPosition, isValid);
     }
 
     public void Rotate(Vector3Int gridPosition)
     {
-        // Rotation not applicable for removal
+        // No-op for grid removal operations
         return;
     }
 
     #region Helper Methods
 
     /// <summary>
-    /// Original single-cell removal logic, unchanged. Used directly for a
-    /// non-drag click, and once per cell when committing a rectangle removal.
+    /// Removes highest priority object at target coordinate
     /// </summary>
     private void RemoveSingle(Vector3Int gridPosition)
     {
@@ -136,8 +111,7 @@ public class GridRemovalState : IBuildingState
     }
 
     /// <summary>
-    /// Removes whatever occupies each cell in the rectangle bounded by origin
-    /// and current, reusing the existing single-cell priority removal per cell.
+    /// Iterates through 2D bounding area and processes single-cell removals at current height
     /// </summary>
     private void RemoveRectangle(Vector3Int origin, Vector3Int current)
     {
@@ -150,59 +124,54 @@ public class GridRemovalState : IBuildingState
         {
             for (int z = minZ; z <= maxZ; z++)
             {
-                // MULTI-LEVEL: uses current.y (the height active at commit
-                // time), not origin.y, so a build-height change mid-drag is
-                // respected rather than removing at a stale height.
+                // Target active height at commit time
                 RemoveSingle(new Vector3Int(x, current.y, z));
             }
         }
     }
 
     /// <summary>
-    /// PERFORMANCE FIX: Single-pass priority check that returns both GridData and object index.
-    /// Eliminates redundant dictionary lookups by combining validation and retrieval.
+    /// Evaluates layers top-down (Furniture -> Floor -> CeilingFurniture -> Ceiling) to return target layer and object index
     /// </summary>
     private (GridData data, int objectIndex) GetRemovalDataWithPriority(Vector3Int gridPosition)
     {
-        // Check furniture layer first (highest priority)
+        // Priority 1: Furniture
         if (!_furnitureData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
         {
             int index = _furnitureData.GetRepresentationIndex(gridPosition);
             return (_furnitureData, index);
         }
         
-        // Check floor layer (medium priority)
+        // Priority 2: Floor
         if (!_floorData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
         {
             int index = _floorData.GetRepresentationIndex(gridPosition);
             return (_floorData, index);
         }
 
-        // Check ceiling furniture layer (second lowest priority)
+        // Priority 3: Ceiling Furniture
         if (!_ceilingFurnitureData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
         {
             int index = _ceilingFurnitureData.GetRepresentationIndex(gridPosition);
             return (_ceilingFurnitureData, index);
         }
 
-        // Check ceiling layer (lowest priority)
+        // Priority 4: Ceiling
         if (!_ceilingData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0))
         {
             int index = _ceilingData.GetRepresentationIndex(gridPosition);
             return (_ceilingData, index);
         }
 
-        // No object found in any layer
+        // Cell unoccupied across all layers
         return (null, -1);
     }
 
     /// <summary>
-    /// Checks if there's a valid object to remove at the specified position.
-    /// Returns true if ANY layer contains an object at this position.
+    /// Returns true if target coordinate is occupied in any layer
     /// </summary>
     private bool CheckIfObjectExists(Vector3Int gridPosition)
     {
-        // If position is occupied (CanPlace returns false), removal is valid
         return !(_furnitureData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0) && 
                  _floorData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0) &&
                  _ceilingData.CanPlaceObjectAt(gridPosition, _positionsToBeFilled, GridRotation.Deg0));

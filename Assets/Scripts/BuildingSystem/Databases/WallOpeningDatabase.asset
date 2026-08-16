@@ -9,25 +9,25 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 0}
+  m_Script: {fileID: 11500000, guid: 80900bc7b88bce040b61097b1105dcb8, type: 3}
   m_Name: WallOpeningDatabase
   m_EditorClassIdentifier: Assembly-CSharp::WallOpeningDatabase
   openingData:
   - name: Door
-    prefab: {fileID: 420945631388275187, guid: b4ee7b3587b1618489ac6d3fedbc889c, type: 3}
-    ID: 1
+    prefab: {fileID: 1442438598526470095, guid: 7e54ca8f807594a4cad1dab758edab6f, type: 3}
+    ID: 0
     buildType: 1
     positionsFilled: 00000000
     shouldChunk: 0
-  - name: Window
-    prefab: {fileID: 3380627810920321274, guid: 14ce66e0a96e0e744b6ec80cf28d2ee4, type: 3}
-    ID: 0
-    buildType: 1
-    positionsFilled: 0000000001000000
-    shouldChunk: 0
-  - name: SlidingGlassDoor
+  - name: SlidingDoor
     prefab: {fileID: 5863969982954710588, guid: fb3fed2f8688dc1448af39ab716a3d15, type: 3}
-    ID: 0
+    ID: 1
     buildType: 1
-    positionsFilled: 00000000ffffffff
+    positionsFilled: ffffffff00000000
+    shouldChunk: 0
+  - name: Window
+    prefab: {fileID: 3115503506871722202, guid: eca257dc2cab9d94c939d7ddbd6e32f3, type: 3}
+    ID: 2
+    buildType: 1
+    positionsFilled: 00000000
     shouldChunk: 0

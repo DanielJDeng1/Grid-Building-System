@@ -1,29 +1,8 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 /// <summary>
-/// Building state for placing grid-based objects (floors, furniture, ceilings).
-/// Supports rotation and validity checking with integrated preview feedback.
-/// 
-/// MULTI-PLACEMENT (Floor/Ceiling only):
-/// Floor and Ceiling objects support rectangle drag-fill: pressing the mouse
-/// button records the drag origin cell (OnActionStart), holding and moving the
-/// mouse updates a bounding-box preview (OnHold), and releasing (OnAction)
-/// places one instance of the selected object per cell in the rectangle.
-/// 
-/// Furniture objects are intentionally excluded from drag-fill and retain the
-/// exact original single-click placement behavior, since furniture footprints
-/// are not guaranteed to be single-cell and tiling them naively would produce
-/// overlapping placements.
-/// 
-/// OVERRIDE BEHAVIOR:
-/// Drag-fill placement replaces whatever is already occupying a given cell on
-/// the SAME layer (floor overrides floor, ceiling overrides ceiling). It does
-/// not touch other layers. This means drag placement is always "valid" from a
-/// preview standpoint - there's no rejected cell, only a replaced one.
-/// 
-/// PREVIEW INTEGRATION:
-/// - Single-click hover: GridPreview (an instance of the actual prefab)
-/// - Active drag: GridMultiPlacePreview (a resizable bounding-box cube)
+/// Handles grid-based placement for floors, furniture, and ceilings with drag-fill support
 /// </summary>
 public class GridState : IBuildingState
 {
@@ -41,7 +20,7 @@ public class GridState : IBuildingState
 
     private GridRotation _currentRotation = GridRotation.Deg0;
 
-    // MULTI-PLACEMENT: Only Floor/Ceiling objects support rectangle drag-fill.
+    // Restrict multi-tile selection to surface elements
     private bool _isDraggableType;
     private Vector3Int? _dragOrigin = null;
 
@@ -70,7 +49,6 @@ public class GridState : IBuildingState
         ObjectBuildType buildType = _database.objectsData[_selectedObjectIndex].buildType;
         _isDraggableType = buildType == ObjectBuildType.Floor || buildType == ObjectBuildType.Ceiling;
 
-        // Initialize preview with the selected object's prefab
         GameObject prefab = _database.objectsData[_selectedObjectIndex].prefab;
         _previewSystem.StartShowingGridPreview(prefab, Vector3.zero);
     }
@@ -81,9 +59,7 @@ public class GridState : IBuildingState
     }
 
     /// <summary>
-    /// Called on mouse-down. Records the drag origin for Floor/Ceiling objects
-    /// and switches the preview to the rectangle bounds preview. Furniture
-    /// objects ignore this entirely - they keep single-click behavior.
+    /// Captures drag origin for expandable surface elements
     /// </summary>
     public void OnActionStart(Vector3Int gridPosition)
     {
@@ -98,9 +74,7 @@ public class GridState : IBuildingState
     }
 
     /// <summary>
-    /// Called every frame while the mouse button is held. Furniture falls back
-    /// to the normal hover preview (unaffected by dragging). Floor/Ceiling
-    /// update the rectangle bounds preview.
+    /// Refreshes bounds preview during active selection drag
     /// </summary>
     public void OnHold(Vector3Int gridPosition)
     {
@@ -115,14 +89,12 @@ public class GridState : IBuildingState
 
         Vector3 worldPosition = _grid.CellToWorld(gridPosition);
 
-        // Override system: drag placement always replaces whatever is on this
-        // layer, so there's no "invalid" rectangle - always show as valid.
+        // Surface placement overwrites existing layer contents
         _previewSystem.UpdatePosition(worldPosition, true);
     }
 
     /// <summary>
-    /// Commits the action. If a drag is active for a draggable type, places the
-    /// full rectangle. Otherwise falls back to the original single-cell placement.
+    /// Commits multi-cell area or falls back to single-tile placement
     /// </summary>
     public void OnAction(Vector3Int gridPosition)
     {
@@ -134,49 +106,53 @@ public class GridState : IBuildingState
             return;
         }
 
-        PlaceSingle(gridPosition);
+        PlaceSingle(gridPosition, _currentRotation);
         UpdateState(gridPosition);
     }
 
     public void UpdateState(Vector3Int gridPosition)
     {
-        // Check if placement is valid at this position
-        bool isValid = CheckPlacementValidity(gridPosition, _selectedObjectIndex);
+        bool isValid = CheckPlacementValidity(gridPosition, _selectedObjectIndex, _currentRotation);
         
-        // Update preview with position and validity feedback
         Vector3 worldPosition = _grid.CellToWorld(gridPosition);
         _previewSystem.UpdatePosition(worldPosition, isValid);
     }
 
     public void Rotate(Vector3Int gridPosition)
     {
-        // Cycle through 4 rotation states
         _currentRotation = (GridRotation)(((int)_currentRotation + 1) % 4);
         
-        // Update preview rotation
         Vector3 pivot = _grid.CellToWorld(gridPosition);
         _previewSystem.UpdateRotation(pivot);
         UpdateState(gridPosition);
     }
 
+    /// <summary>
+    /// Direct placement entry point for layout reconstruction and save files
+    /// </summary>
+    public void PlaceDirect(Vector3Int gridPosition, GridRotation rotation)
+    {
+        if (!PlaceSingle(gridPosition, rotation))
+        {
+            Debug.LogWarning($"GridState.PlaceDirect: placement rejected at {gridPosition} (ID {_ID}, rotation {rotation}) - " +
+                              "save data may be stale or the layout has changed since it was saved.");
+        }
+    }
+
     #region Helper Methods
 
-    /// <summary>
-    /// Original single-cell placement logic, unchanged. Used directly by
-    /// Furniture objects, and as a safety fallback if a Floor/Ceiling object's
-    /// footprint isn't drag-fill compatible (see PlaceRectangle).
-    /// </summary>
-    private void PlaceSingle(Vector3Int gridPosition)
+    // Evaluates grid validity before instantiating single object instance
+    private bool PlaceSingle(Vector3Int gridPosition, GridRotation rotation)
     {
-        bool placementValidity = CheckPlacementValidity(gridPosition, _selectedObjectIndex);
+        bool placementValidity = CheckPlacementValidity(gridPosition, _selectedObjectIndex, rotation);
 
         if (!placementValidity)
-            return;
+            return false;
 
         int index = _objectPlacer.PlaceObject(
             _database.objectsData[_selectedObjectIndex].prefab,
             _grid.CellToWorld(gridPosition),
-            _currentRotation,
+            rotation,
             _database.objectsData[_selectedObjectIndex].buildType
         );
 
@@ -185,20 +161,13 @@ public class GridState : IBuildingState
             _database.objectsData[_selectedObjectIndex].positionsFilled,
             _database.objectsData[_selectedObjectIndex].ID,
             index,
-            _currentRotation
+            rotation
         );
+
+        return true;
     }
 
-    /// <summary>
-    /// Places one instance of the selected object per cell in the rectangle
-    /// bounded by origin and current, overriding any existing object on this
-    /// layer at each cell.
-    /// 
-    /// ASSUMPTION: the selected object has a single-cell footprint
-    /// (positionsFilled == { Vector2Int.zero }). If it doesn't, rectangle
-    /// fill would produce overlapping/undefined placements, so this logs a
-    /// warning and falls back to a single placement at the current cell.
-    /// </summary>
+    // Iterates across 2D cell region to place tiled surfaces and replace occupants
     private void PlaceRectangle(Vector3Int origin, Vector3Int current)
     {
         ObjectData selectedObject = _database.objectsData[_selectedObjectIndex];
@@ -207,7 +176,7 @@ public class GridState : IBuildingState
         {
             Debug.LogWarning($"GridState: '{selectedObject.name}' does not have a single-cell footprint. " +
                               "Rectangle drag-fill requires positionsFilled == {{ (0,0) }}. Falling back to single placement.");
-            PlaceSingle(current);
+            PlaceSingle(current, _currentRotation);
             return;
         }
 
@@ -220,13 +189,8 @@ public class GridState : IBuildingState
         {
             for (int z = minZ; z <= maxZ; z++)
             {
-                // MULTI-LEVEL: uses current.y (the height active at commit
-                // time), not origin.y, so that if build height changes mid-drag,
-                // the placed rectangle matches what the preview showed.
                 Vector3Int cellPosition = new Vector3Int(x, current.y, z);
 
-                // OVERRIDE: destroy and unregister whatever currently occupies
-                // this cell on this layer before placing the new object.
                 int existingIndex = _selectedData.GetRepresentationIndex(cellPosition);
                 if (existingIndex != -1)
                 {
@@ -242,23 +206,19 @@ public class GridState : IBuildingState
         }
     }
 
-    /// <summary>
-    /// After committing a drag placement, restores the normal single-object
-    /// hover preview so the player continues to see a live preview at the
-    /// cursor's current cell.
-    /// </summary>
+    // Swaps active multi-select visualization back to standard hover prefab
     private void RestoreHoverPreview(Vector3Int gridPosition)
     {
         GameObject prefab = _database.objectsData[_selectedObjectIndex].prefab;
         _previewSystem.StartShowingGridPreview(prefab, _grid.CellToWorld(gridPosition));
     }
 
-    private bool CheckPlacementValidity(Vector3Int gridPosition, int selectedObjectIndex)
+    private bool CheckPlacementValidity(Vector3Int gridPosition, int selectedObjectIndex, GridRotation rotation)
     {
         return _selectedData.CanPlaceObjectAt(
             gridPosition, 
             _database.objectsData[selectedObjectIndex].positionsFilled, 
-            _currentRotation
+            rotation
         );
     }
 

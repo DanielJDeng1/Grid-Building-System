@@ -1,11 +1,8 @@
 using System.Collections.Generic;
 
 /// <summary>
-/// Minimal array-based binary min-heap, used by AStarPathfinder's open set.
-/// Supports lazy deletion (duplicate pushes for the same item are tolerated
-/// - the caller skips stale pops via its own closed set) rather than a full
-/// decrease-key implementation. Simpler to get right, and correct for A*'s
-/// specific access pattern (we only ever care about popping the minimum).
+/// Minimal min-heap implementation for the pathfinder open set. 
+/// Relies on lazy deletion to avoid the overhead of a full decrease-key operation.
 /// </summary>
 public class BinaryHeap<T>
 {

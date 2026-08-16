@@ -2,14 +2,9 @@ using System;
 using UnityEngine;
 
 /// <summary>
-/// The navigation system's own edge type - deliberately NOT a reference to
-/// GridData.Edge, per the decoupling decision recorded in the design doc
-/// (§13, decision 3). A few lines of duplication versus a genuine
-/// compile-time boundary between the two systems.
-/// 
-/// Same bidirectional-equality technique as GridData.Edge: (A,B) and (B,A)
-/// represent the same physical edge, and hash the same way regardless of
-/// endpoint order.
+/// Navigation-specific edge identifier between two cell coordinates.
+/// Decoupled from GridData.Edge to maintain subsystem boundaries.
+/// Evaluates equality and hashing bidirectionally regardless of endpoint order.
 /// </summary>
 public readonly struct NavEdge : IEquatable<NavEdge>
 {

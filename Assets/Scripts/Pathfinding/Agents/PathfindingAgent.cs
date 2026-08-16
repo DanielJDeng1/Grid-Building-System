@@ -2,22 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Owns path state and requests - does NOT move the agent itself (see
-/// AgentMotor). Converts a raw PathResult (cell-space) into a smoothed,
-/// world-space waypoint list: line-of-sight simplification, then Grid
-/// conversion (the one place this class touches Unity's shared Grid
-/// component, matching the building system's own CellToWorld usage), then
-/// lane offset.
-/// 
-/// agentSeed is derived once at spawn (GetInstanceID()) and reused for every
-/// request this agent makes - stable across replans, which is what keeps
-/// this agent's routing/lane bias consistent rather than flickering.
-/// 
-/// INSPECTOR SETUP:
-/// - Assign the scene's PathRequestManager
-/// - Assign the scene's NavigationService
-/// - Assign the shared Grid component (same one PlacementSystem uses)
-/// - Assign an AgentMotor on the same GameObject (or a child)
+/// Manages path requests, coordinates with pathfinding services, post-processes cell paths into world-space laned waypoints, and passes them to the AgentMotor.
 /// </summary>
 [RequireComponent(typeof(AgentMotor))]
 public class PathfindingAgent : MonoBehaviour
@@ -32,6 +17,8 @@ public class PathfindingAgent : MonoBehaviour
     private PathPostProcessor _postProcessor;
     private int _agentSeed;
     private bool _hasPendingRequest;
+
+    public event System.Action OnDestinationUnreachable;
 
     private void Awake()
     {
@@ -51,16 +38,10 @@ public class PathfindingAgent : MonoBehaviour
         _postProcessor = new PathPostProcessor(_navigationService.NavGrid);
     }
 
-    /// <summary>
-    /// Requests a new path to the given world-space destination. Never
-    /// blocks - the agent keeps its current path (or stays idle) until the
-    /// result arrives, potentially several frames later if the request
-    /// queue is backed up.
-    /// </summary>
     public void RequestPathTo(Vector3 worldDestination)
     {
         if (_hasPendingRequest)
-            return; // avoid piling up duplicate requests while one is already in flight
+            return;
 
         Vector3Int start = _grid.WorldToCell(transform.position);
         Vector3Int goal = _grid.WorldToCell(worldDestination);
@@ -82,26 +63,20 @@ public class PathfindingAgent : MonoBehaviour
         }
 
         List<Vector3Int> simplifiedCells = _postProcessor.SimplifyLineOfSight(result.Waypoints);
-        NavDebug.Log($"[PathfindingAgent] '{name}' after LOS simplify: {simplifiedCells.Count} cells: {string.Join(" -> ", simplifiedCells)}");
+        NavDebug.Log($"[PathfindingAgent] '{name}' after LOS simplify: {simplifiedCells.Count} cells");
 
         var worldWaypoints = new List<Vector3>(simplifiedCells.Count);
         foreach (var cell in simplifiedCells)
             worldWaypoints.Add(_grid.CellToWorld(cell));
 
         List<Vector3> lanedWaypoints = _postProcessor.ApplyLaneOffset(worldWaypoints, _agentSeed, _laneOffsetRange);
-        NavDebug.Log($"[PathfindingAgent] '{name}' final world waypoints ({lanedWaypoints.Count}): {string.Join(" -> ", lanedWaypoints)}");
+        NavDebug.Log($"[PathfindingAgent] '{name}' final world waypoints ({lanedWaypoints.Count})");
 
         _motor.SetPath(lanedWaypoints);
 
         if (result.Status == PathStatus.Unreachable)
         {
-            // Walked as close as possible per the design's fallback - worth
-            // exposing to higher-level AI logic so it can pick a different
-            // task rather than the agent just silently stopping.
             OnDestinationUnreachable?.Invoke();
         }
     }
-
-    /// <summary>Fired when a requested destination is confirmed unreachable (not just slow to find).</summary>
-    public event System.Action OnDestinationUnreachable;
 }

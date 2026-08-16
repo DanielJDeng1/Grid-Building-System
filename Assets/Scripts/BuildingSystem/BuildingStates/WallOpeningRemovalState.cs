@@ -1,10 +1,7 @@
 using UnityEngine;
 
 /// <summary>
-/// Building state for removing wall openings (doors, windows) without touching the host wall.
-/// Single-click only. Delegates entirely to WallOpeningLinkService, which restores the host
-/// wall tile(s)' original (uncut) prefab as part of removal - see
-/// WallOpeningLinkService.RemoveOpening.
+/// Handles removal of wall openings (doors/windows) while delegating host wall restoration to WallOpeningLinkService
 /// </summary>
 public class WallOpeningRemovalState : IBuildingState
 {
@@ -27,12 +24,18 @@ public class WallOpeningRemovalState : IBuildingState
     public void OnActionStart(Vector3Int gridPosition) { }
     public void OnHold(Vector3Int gridPosition) { }
 
+    /// <summary>
+    /// Removes target opening and triggers host wall mesh restoration
+    /// </summary>
     public void OnAction(Vector3Int gridPosition)
     {
         Edge edge = CalculateBaseEdge(gridPosition, _currentRotation);
         _linkService.RemoveOpening(edge);
     }
 
+    /// <summary>
+    /// Validates opening existence at target coordinate to drive removal preview
+    /// </summary>
     public void UpdateState(Vector3Int gridPosition)
     {
         Edge edge = CalculateBaseEdge(gridPosition, _currentRotation);
@@ -43,12 +46,16 @@ public class WallOpeningRemovalState : IBuildingState
 
     public void Rotate(Vector3Int gridPosition)
     {
+        // Toggle between two orthogonal edge orientations
         _currentRotation = (EdgeRotation)(((int)_currentRotation + 1) % 2);
         Vector3 worldPosition = _grid.CellToWorld(gridPosition);
         _previewSystem.UpdateRotation(worldPosition);
         UpdateState(gridPosition);
     }
 
+    /// <summary>
+    /// Maps tile coordinate and orientation to edge segment endpoints
+    /// </summary>
     private Edge CalculateBaseEdge(Vector3Int tilePosition, EdgeRotation rotation)
     {
         return rotation == EdgeRotation.Deg0

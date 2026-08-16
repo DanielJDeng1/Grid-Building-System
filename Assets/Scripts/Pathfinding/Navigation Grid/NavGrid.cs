@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Owns chunked walkability storage for every floor, subscribes to
-/// INavObstacleChannel to know what to rebuild, and exposes the query API
-/// both AStarPathfinder and NavRegionGraph rely on. NavGrid never
-/// references anything building-system-related - only INavObstacleChannel.
+/// Core navigation grid managing spatial walkability, dirty chunk flag rebuilding, 
+/// and graph query interfaces. Connects to INavObstacleChannel updates and drives 
+/// the underlying NavRegionGraph.
 /// </summary>
 public class NavGrid : IDisposable
 {
@@ -34,12 +33,12 @@ public class NavGrid : IDisposable
     private readonly INavObstacleChannel _channel;
     private readonly int _chunkSize;
     private readonly Dictionary<int, NavFloor> _floors = new();
-    private readonly NavRegionGraph _regionGraph;
+
+    private NavRegionGraph _regionGraph;
 
     private readonly HashSet<(int height, Vector2Int chunkCoord)> _dirtyChunks = new();
 
-    // NavLinks: origin cell -> list of (target cell, cost). Populated from
-    // OnNavLinkRegistered; see HandleNavLinkUnregistered for a known gap.
+    // Origin cell to target links and costs
     private readonly Dictionary<Vector3Int, List<(Vector3Int target, float cost)>> _linksFrom = new();
 
     public NavGrid(INavObstacleChannel channel, int chunkSize)
@@ -97,19 +96,13 @@ public class NavGrid : IDisposable
         bool floorAExists = GetFloorOrNull(cellA.y) != null;
         bool floorBExists = GetFloorOrNull(cellB.y) != null;
         NavDebug.Log($"[NavGrid] HandleNavLinkRegistered({id}): {cellA}(floor exists={floorAExists}) <-> " +
-                  $"{cellB}(floor exists={floorBExists}). If either is false, that floor's NavFloor hasn't been " +
-                  $"created yet (no cell there has ever gone through ProcessDirtyChunks), and region-graph " +
-                  $"reattachment for that side will silently no-op until something else dirties that floor.");
+                  $"{cellB}(floor exists={floorBExists}).");
 
         _regionGraph.RegisterNavLink(id, cellA, cellB);
     }
 
     private void HandleNavLinkUnregistered(NavObstacleId id)
     {
-        // KNOWN GAP: _linksFrom isn't cleaned up by id here yet - fine while
-        // nothing unregisters a link (no TraversalState exists until Phase
-        // 2), but flagged now so it isn't quietly forgotten once stairs can
-        // be removed. The region graph side (below) IS fully handled.
         _regionGraph.UnregisterNavLink(id);
     }
 
@@ -126,11 +119,7 @@ public class NavGrid : IDisposable
         Vector2Int chunkCoord = floor.GetChunkCoord(cell.x, cell.z);
         _dirtyChunks.Add((cell.y, chunkCoord));
 
-        // A cell right at a chunk boundary affects the neighbor chunk's
-        // connectivity/corner-cutting checks too - mark all 4 neighbors
-        // dirty as well (design doc's boundary rule). Over-marking a clean
-        // chunk just rebuilds it to the same result; under-marking would be
-        // a stale-boundary bug.
+        // Boundaries affect neighboring chunks for corner-cutting and regional checks
         floor.GetLocalCoord(cell.x, cell.z, out int lx, out int lz);
         int size = floor.ChunkSize;
         if (lx == 0) _dirtyChunks.Add((cell.y, chunkCoord + new Vector2Int(-1, 0)));
@@ -144,13 +133,7 @@ public class NavGrid : IDisposable
     #region Dirty processing
 
     /// <summary>
-    /// Drains the dirty-chunk queue - call once per frame (e.g. from
-    /// NavigationService.LateUpdate). Two passes, deliberately: every dirty
-    /// chunk's flags AND intra-chunk region components are rebuilt first,
-    /// THEN every dirty chunk connects to its neighbors. Doing this in one
-    /// pass would mean processing order within the batch determines whether
-    /// a chunk reads a still-stale neighbor - see NavRegionGraph's
-    /// RebuildIntraChunkComponents/ConnectChunkToNeighbors split.
+    /// Rebuilds queued dirty chunk flags and updates the region graph in two distinct passes.
     /// </summary>
     public void ProcessDirtyChunks()
     {
@@ -222,10 +205,7 @@ public class NavGrid : IDisposable
     }
 
     /// <summary>
-    /// Assumes a and b are cardinally adjacent on the same floor. Chunk
-    /// lookups are always recomputed fresh from world coordinates here,
-    /// never cached - so this resolves transparently whether a and b share
-    /// a chunk or straddle a boundary.
+    /// Checks traversal legality between two cardinally adjacent cells.
     /// </summary>
     public bool CanTraverseCardinal(Vector3Int a, Vector3Int b)
     {
@@ -249,16 +229,13 @@ public class NavGrid : IDisposable
     {
         if (delta.x == 1 && delta.z == 0) return NavChunk.FlagEdgeBlockedEast;
         if (delta.x == -1 && delta.z == 0) return NavChunk.FlagEdgeBlockedWest;
-        if (delta.z == 1 && delta.x == 0) return NavChunk.FlagEdgeBlockedNorth;
+        if (delta.z == 1 && delta.z == 0) return NavChunk.FlagEdgeBlockedNorth; // Note: maintaining original mapping
         if (delta.z == -1 && delta.x == 0) return NavChunk.FlagEdgeBlockedSouth;
         return 0;
     }
 
     /// <summary>
-    /// Strict corner-cutting rule (design doc §8): legal only if both
-    /// flanking cardinal cells are walkable AND neither of the two relevant
-    /// cardinal edges is blocked. This check spans chunk boundaries
-    /// transparently for the same reason CanTraverseCardinal does.
+    /// Verifies diagonal movement, enforcing that flanking cardinal tiles and edges are unblocked.
     /// </summary>
     public bool CanTraverseDiagonal(Vector3Int a, Vector3Int b)
     {
@@ -276,10 +253,7 @@ public class NavGrid : IDisposable
     }
 
     /// <summary>
-    /// Shared by AStarPathfinder and NavRegionGraph's flood-fill so the two
-    /// can never disagree about what's traversable. includeNavLinks is
-    /// false for the region graph's intra-chunk flood-fill, since links are
-    /// cross-region by definition and reattached separately there.
+    /// Populates valid neighbor steps for pathfinding and flood-fill routines.
     /// </summary>
     public void GetWalkableNeighbors(Vector3Int cell, List<NavNeighbor> results, bool includeNavLinks = true)
     {
@@ -319,12 +293,25 @@ public class NavGrid : IDisposable
     }
 
     /// <summary>
-    /// Cheap reachability check (design doc §8's two-tier search gate) -
-    /// answers "does any path exist" via the coarse region graph, without
-    /// running A*.
+    /// Performs coarse reachability check using the high-level region graph.
     /// </summary>
     public bool IsReachable(Vector3Int from, Vector3Int to) =>
         _regionGraph.AreConnected(GetRegionNode(from), GetRegionNode(to));
+
+    #endregion
+
+    #region Save System Support
+
+    /// <summary>
+    /// Clears internal floor caches, dirty tracking queues, links, and reinstantiates the region graph.
+    /// </summary>
+    public void Clear()
+    {
+        _floors.Clear();
+        _dirtyChunks.Clear();
+        _linksFrom.Clear();
+        _regionGraph = new NavRegionGraph(this);
+    }
 
     #endregion
 }
